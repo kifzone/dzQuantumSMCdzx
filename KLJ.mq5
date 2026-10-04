@@ -15843,8 +15843,8 @@ string QSMC_DataHealthLine()
 {
    int lvl=QSMC_DataHealthLevel();
    if(lvl==QSMC_DH_GOOD) return "DATA HEALTH: GOOD";
-   return String("DATA HEALTH: ",(lvl==QSMC_DH_ERROR?"ERROR":"WARNING"),
-                 (g_dh_reason==""?"":" - "+g_dh_reason));
+   return "DATA HEALTH: "+(lvl==QSMC_DH_ERROR?"ERROR":"WARNING")+
+                 (g_dh_reason==""?"":" - "+g_dh_reason);
 }
 
 // The early-return path draws this instead of leaving a silent blank chart.
@@ -15854,7 +15854,7 @@ void QSMC_DrawDataHealthBanner(const string reason)
    if(ObjectFind(0,nm)<0) ObjectCreate(0,nm,OBJ_LABEL,0,0,0);
    ObjectSetInteger(0,nm,OBJPROP_CORNER,CORNER_LEFT_UPPER);
    ObjectSetInteger(0,nm,OBJPROP_XDISTANCE,10);
-   ObjectSetInteger(0,nm,OBJPROP_YDIST,14);
+   ObjectSetInteger(0,nm,OBJPROP_YDISTANCE,14);
    ObjectSetString(0,nm,OBJPROP_TEXT,reason);
    ObjectSetString(0,nm,OBJPROP_FONT,"Consolas Bold");
    ObjectSetInteger(0,nm,OBJPROP_FONTSIZE,9);
@@ -26760,17 +26760,17 @@ void SMF_EvaluateCandidate(const int closed,const bool is_buy,
    {
       audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.profile_available_time,g_smf.decision_time) &&
                 g_smf.profile_end_bar<=closed && g_smf.profile_end_time<=g_buf_t[closed]);
-      max_avail=MathMax((long)max_avail,(long)g_smf.profile_available_time);
+      max_avail=(datetime)MathMax((long)max_avail,(long)g_smf.profile_available_time);
    }
    if(g_smf.vwap_valid)
    {
       audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.vwap_available_time,g_smf.decision_time));
-      max_avail=MathMax((long)max_avail,(long)g_smf.vwap_available_time);
+      max_avail=(datetime)MathMax((long)max_avail,(long)g_smf.vwap_available_time);
    }
    if(g_smf.volume_valid)
    {
       audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.volume_available_time,g_smf.decision_time));
-      max_avail=MathMax((long)max_avail,(long)g_smf.volume_available_time);
+      max_avail=(datetime)MathMax((long)max_avail,(long)g_smf.volume_available_time);
    }
    g_smf.event_available_time=0;
    bool ev_ok=SMF_AddEventProvenance(sweep_event,"SWEEP",g_smf.decision_time,
@@ -26792,7 +26792,7 @@ void SMF_EvaluateCandidate(const int closed,const bool is_buy,
    if(g_smf.event_available_time>0)
    {
       audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.event_available_time,g_smf.decision_time));
-      max_avail=MathMax((long)max_avail,(long)g_smf.event_available_time);
+      max_avail=(datetime)MathMax((long)max_avail,(long)g_smf.event_available_time);
    }
    audit_ok=(audit_ok && ev_ok);
    g_smf.causal_ok=audit_ok;
