@@ -510,7 +510,7 @@
 // banners. The titles used to hardcode "v6.0"/"v6.0.0" and the stop banner
 // "v5.8.0" while the file itself was v6.1.1 - three different versions for
 // one build. Use this macro everywhere a user-visible version is printed.
-#define QSMC_VERSION_TEXT "v6.5.0"
+#define QSMC_VERSION_TEXT "v6.6.0"
 #property indicator_chart_window
 #property indicator_buffers 19   // 0-2 lines, 3-6 entry marks (plotted), 7-18 hidden signal export (SigLog, INDICATOR_CALCULATIONS)
 #property indicator_plots   7
@@ -1138,6 +1138,15 @@ input bool                  InpMVPShowLegend          = true;  // Top-right read
 input double                InpMVPHVNFraction         = 0.60;  // HVN >= this fraction of POC volume
 input double                InpMVPLVNFraction         = 0.35;  // LVN <= this fraction of median row
 input bool                  InpMVPRunSelfTest         = true;  // Run the numeric self-test at init
+
+input group "====== v6.6.0 SMART-MONEY VP / VWAP / VOLUME EVIDENCE ======"
+// Reuses the existing chart-timeframe MVP, anchored VWAP and candle-volume
+// calculations. Evidence is causal/closed-bar and only replaces sub-scores
+// inside existing quality buckets; it cannot create or authorize a setup.
+input bool InpUseSmartMoneyVolumeEvidence = true; // Blend closed-bar evidence into existing score groups
+input bool InpSMFRunSelfTest              = true; // Deterministic synthetic scenario tests at init
+input int  InpSMFReplayAuditEveryBars     = 50;   // 0 disables as-of profile replay checks
+input int  InpSMFReplayAuditSamples       = 4;    // Samples per replay audit (1-8)
 
 enum ENUM_ZRE_ENTRY_MODE
 {
@@ -1812,10 +1821,177 @@ struct SCandleIntelligence
    bool   imbalance_present;
    bool   follow_through;
    bool   volume_expansion;
-   int    score;                  // 0-100
-   string description;            // INSTITUTIONAL-LIKE PRICE ACTION / ORDER-FLOW CONSISTENT BEHAVIOR
+   double volume_ratio;           // current closed-bar volume / prior closed-bar baseline
+   double volume_average;
+   string volume_source;           // real/tick total-volume source; never bid/ask delta
+   int    score;                  // legacy candle-intelligence score (0-100)
+   string description;            // price action + volume proxy; never true order flow
    bool   confirms_buy;
    bool   confirms_sell;
+};
+
+#define SMF_PROFILE_NODE_MAX 4
+
+// Smart-money evidence is an immutable snapshot of what was available at
+// the setup's creation decision boundary. The layer is a score/context
+// consumer only; it never owns setup state or entry authority.
+struct SSMFSignalFacts
+{
+   bool     valid;
+   bool     causal_ok;
+   int      decision_bar;
+   int      direction; // +1 BUY context, -1 SELL context, 0 non-directional
+   datetime decision_time;
+   datetime availability_time;
+   datetime profile_available_time;
+   datetime vwap_available_time;
+   datetime volume_available_time;
+   datetime event_available_time;
+   double   profile_poc;
+   double   profile_vah;
+   double   profile_val;
+   double   profile_row_size;
+   int      profile_hvn_count;
+   int      profile_lvn_count;
+   double   profile_hvn[SMF_PROFILE_NODE_MAX];
+   double   profile_lvn[SMF_PROFILE_NODE_MAX];
+   double   vwap_value;
+   double   volume_ratio;
+   int      profile_score;
+   int      vwap_score;
+   int      flow_score;
+   bool     integrate_profile;
+   bool     integrate_vwap;
+   bool     integrate_flow;
+   bool     same_bar_cluster;
+   bool     conflict;
+   bool     profile_touch;
+   bool     profile_boundary_touch;
+   bool     profile_node_touch;
+   bool     vwap_event;
+   bool     volume_expansion;
+   ulong    profile_fingerprint;
+   string   profile_tag;
+   string   profile_source;
+   string   volume_source;
+   string   vwap_source;
+   string   profile_response;
+   string   vwap_response;
+   string   flow_response;
+   string   status;
+   string   sweep_event_id;
+   string   displacement_event_id;
+   string   structure_event_id;
+   string   zone_event_id;
+   string   provenance;
+};
+
+struct SSmartMoneyEvidence
+{
+   bool     enabled;
+   bool     valid;
+   bool     causal_ok;
+   int      closed_bar;
+   int      direction;
+   double   candle_close_location;
+   double   candle_body_ratio;
+   double   candle_wick_ratio;
+   bool     candle_confirms_buy;
+   bool     candle_confirms_sell;
+   bool     candle_is_displacement;
+   bool     candle_effort_result_proxy;
+   datetime decision_time;
+   datetime profile_start_time;
+   datetime profile_end_time;
+   datetime profile_available_time;
+   datetime vwap_available_time;
+   datetime volume_available_time;
+   datetime event_available_time;
+   int      profile_start_bar;
+   int      profile_end_bar;
+   double   profile_poc;
+   double   profile_vah;
+   double   profile_val;
+   double   profile_row_size;
+   int      profile_hvn_count;
+   int      profile_lvn_count;
+   double   profile_hvn[SMF_PROFILE_NODE_MAX];
+   double   profile_lvn[SMF_PROFILE_NODE_MAX];
+   double   vwap_value;
+   double   previous_vwap;
+   double   volume_ratio;
+   double   volume_average;
+   double   profile_integrated_score;
+   int      profile_score;
+   int      vwap_score;
+   int      flow_score;
+   bool     profile_valid;
+   bool     vwap_valid;
+   bool     volume_valid;
+   bool     profile_touch;
+   bool     profile_boundary_touch;
+   bool     profile_node_touch;
+   bool     profile_rejection;
+   bool     vwap_touch;
+   bool     vwap_event;
+   bool     vwap_reclaim;
+   bool     vwap_rejection;
+   bool     vwap_aligned;
+   bool     volume_expansion;
+   bool     flow_directional;
+   bool     absorption_proxy;
+   bool     displacement;
+   bool     causal_chain_ok;
+   bool     structure_ok;
+   bool     zone_ok;
+   bool     retest_ok;
+   bool     rr_ok;
+   bool     authority_ok;
+   bool     conflict;
+   bool     forming;
+   bool     integrate_profile;
+   bool     integrate_vwap;
+   bool     integrate_flow;
+   bool     shared_bar_cluster;
+   bool     true_bid_ask_available; // deliberately false: no reliable source exists here
+   ulong    profile_fingerprint;
+   string   profile_tag;
+   string   profile_source;
+   string   volume_source;
+   string   vwap_source;
+   string   profile_response;
+   string   vwap_response;
+   string   flow_response;
+   string   conflict_reason;
+   string   integration_note;
+   string   status;
+   string   missing_reason;
+   string   event_provenance;
+   string   sweep_event_id;
+   string   displacement_event_id;
+   string   structure_event_id;
+   string   zone_event_id;
+   string   provenance;
+};
+
+#define SMF_REPLAY_RING_SIZE 256
+struct SSMFReplayRecord
+{
+   bool     valid;
+   int      decision_bar;
+   datetime decision_time;
+   int      profile_start_bar;
+   int      profile_end_bar;
+   datetime profile_start_time;
+   datetime profile_end_time;
+   datetime profile_available_time;
+   double   profile_poc;
+   double   profile_vah;
+   double   profile_val;
+   double   profile_row_size;
+   ulong    profile_fingerprint;
+   string   profile_tag;
+   string   profile_source;
 };
 
 // Phase 4: Institutional Behavior Model
@@ -1895,6 +2071,7 @@ struct SHistoricalSetup
    int      ema_state;
    string   candle_confirmation;
    string   setup_id;
+   SSMFSignalFacts smf; // immutable entry-time evidence; outcome updates never modify it
    
    // Post-event outcome data (recorded only after the fact, never affects signals)
    bool     resolved;
@@ -1933,6 +2110,7 @@ struct SConfirmedSignalJournalEntry
    string   structure_event_id;
    string   zone_event_id;
    string   candle_confirmation;
+   SSMFSignalFacts smf; // immutable facts duplicated from the owning setup
 };
 
 // Phase 44: Statistical Analysis Metrics
@@ -1963,6 +2141,23 @@ struct SStatisticalMetrics
 // Quantum SMC Intelligence Engine Globals
 BarData                 g_bar_data;
 SCandleIntelligence     g_candle_intel;
+SSmartMoneyEvidence     g_smf;
+SSmartMoneyEvidence     g_smf_snapshot;
+SSMFReplayRecord        g_smf_replay_ring[SMF_REPLAY_RING_SIZE];
+int                     g_smf_replay_head=0;
+int                     g_smf_replay_count=0;
+int                     g_smf_replay_checks=0;
+int                     g_smf_replay_passes=0;
+int                     g_smf_replay_failures=0;
+int                     g_smf_profile_builds=0;
+int                     g_smf_profile_cache_hits=0;
+long                    g_smf_last_us=0;
+long                    g_smf_avg_us=0;
+long                    g_smf_profile_last_us=0;
+long                    g_smf_profile_avg_us=0;
+string                  g_smf_replay_status="NOT RUN";
+datetime                g_smf_current_audit_time=0;
+bool                    g_smf_current_audit_ok=true;
 SInstitutionalBehavior  g_inst_behavior;
 SetupCandidate          g_primary_candidate;
 SetupCandidate          g_secondary_candidate;
@@ -3032,6 +3227,7 @@ struct STradeSetup
    int    relationship_score;    // InstitutionalRelationshipMatrix diagnostic (0-100)
    string relationship_label;
    string mtf_conflict_label;    // MarketConflictEngine classification label
+   SSMFSignalFacts smf;             // immutable causal smart-money evidence snapshot
 };
 
 // These declarations require the complete STradeSetup type above.
@@ -3170,6 +3366,7 @@ struct SActiveSetup
    int      confirmed_bar;
    datetime confirmed_time;
    bool     alert_fired;
+   SSMFSignalFacts smf; // copied once from the setup and retained through lifecycle
 };
 struct SDealingRange
 {
@@ -4514,9 +4711,30 @@ void DrawSessionHighLow(const int total,const datetime &t[],const double &h[],co
 void DrawHLine(const string name,const double price,const color col,const string label,const int width=1);
 void DrawTextLabel(const string name,const datetime tm,const double price,const string text,const color col,const bool above,const int font_size=8);
 void MVP_Update(const int rates_total,const bool force_rebuild,const bool force_draw);
+void MVP_EnsureDecisionSnapshot(const int rates_total,const bool force_rebuild);
 void MVP_OnChartChange();
 void MVP_Clear();
 bool MVP_SelfTest();
+void SMF_ResetState();
+void SMF_UpdateSnapshot(const int rates_total,const bool force);
+void SMF_RefreshDecisionView(const int rates_total);
+void SMF_EvaluateCandidate(const int closed,const bool is_buy,
+                           const double zone_top,const double zone_bottom,
+                           const int sweep_event,const int displacement_event,
+                           const int structure_event,const int zone_event,
+                           const bool causal_chain_ok,const bool structure_ok,
+                           const bool zone_ok,const bool retest_ok,const bool rr_ok,
+                           const bool authority_ok,const bool forming);
+bool SMF_SelfTest();
+bool SMF_CausalTimeValid(const datetime availability_time,const datetime decision_time);
+bool SMF_FactsEqual(const SSMFSignalFacts &a,const SSMFSignalFacts &b);
+bool SMF_FactsCausalValid(const SSMFSignalFacts &facts);
+ulong SMF_FactsDigest(const SSMFSignalFacts &facts);
+string SMF_StateDigestString();
+int SMF_AdjustCandleScore(const int score,const bool volume_expansion,
+                          const int flow_score,const bool flow_integrated);
+void SMF_CopyToFacts(const SSmartMoneyEvidence &src,SSMFSignalFacts &dst);
+void SMF_RecordProfileTime(const long start_us);
 int ZRE_CfgMaxZones();
 int ZRE_CfgMinZoneScore();
 double ZRE_CfgPadATR();
@@ -11782,6 +12000,7 @@ void SigLog_Update(const int rates_total,const int prev_calculated)
 
 int OnInit()
 {
+   SMF_ResetState();
    // v6.1.3 (L5c): no object from a previous session / dashboard mode may
    // survive underneath the fresh panels (they all share the QSMC_ prefix).
    ObjectsDeleteAll(0,PFX);
@@ -11829,7 +12048,8 @@ int OnInit()
       (InpChaseFilter && InpChaseMaxATR<=0.0) ||
       InpMaxChartObjects<0 || InpMaxZonesPerSide<1 ||
       (InpLabelFontSize<0 || InpLabelFontSize>72) ||
-      InpSignalDedupCooldownBars<0)
+      InpSignalDedupCooldownBars<0 || InpSMFReplayAuditEveryBars<0 ||
+      InpSMFReplayAuditSamples<1 || InpSMFReplayAuditSamples>8)
    {
       Print("Invalid Quantum SMC input parameters");
       return INIT_PARAMETERS_INCORRECT;
@@ -12118,6 +12338,13 @@ int OnInit()
          "% | TP exits: ",DoubleToString(g_qcfg.tp1_exit_pct,0),"%/",
          DoubleToString(g_qcfg.tp2_exit_pct,0),"%/",DoubleToString(g_qcfg.tp3_exit_pct,0),"%");
    PMI_Init();
+   if(InpUseSmartMoneyVolumeEvidence && InpSMFRunSelfTest)
+   {
+      if(SMF_SelfTest())
+         Print(">>> ",QSMC_VERSION_TEXT," SMF deterministic self-test: PASS");
+      else
+         Print(">>> ",QSMC_VERSION_TEXT," SMF deterministic self-test: FAIL");
+   }
    if(InpUseMasterVolumeProfile)
    {
       Print(">>> ",QSMC_VERSION_TEXT," Master Volume Profile: ON | mode=",EnumToString(InpMVPMode),
@@ -12430,6 +12657,15 @@ int OnCalculate(const int rates_total, const int prev_calculated,
 
    FillEMAAndVWAP(rates_total,g_buf_o,g_buf_h,g_buf_l,g_buf_c,g_buf_t,g_buf_tv,full_indicators);
 
+   // v6.6.0: prepare the existing MVP before any candidate is scored, including
+   // Strategy Tester / optimization runs where MVP_Update intentionally does
+   // not draw. The same closed-bar snapshot is reused by the later draw pass.
+   if(InpUseSmartMoneyVolumeEvidence)
+   {
+      MVP_EnsureDecisionSnapshot(rates_total,is_new_bar || prev_calculated==0 || first_run);
+      SMF_UpdateSnapshot(rates_total,is_new_bar || prev_calculated==0 || first_run);
+   }
+
    if(useIncremental)
    {
       // Closed-state transitions are processed once for the newly closed candle.
@@ -12644,6 +12880,11 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    if(had_active || g_active_setup.active)
       ApplyCausalDecisionState();
 
+   // Refresh only the explanatory directional view after lifecycle ownership
+   // is settled; immutable setup facts remain in the owning setup record.
+   if(InpUseSmartMoneyVolumeEvidence)
+      SMF_RefreshDecisionView(rates_total);
+
    // Periodically snapshot the incremental market-event graph and force a
    // same-bar full replay on the next tick.
    if(InpEnableCausalInvariantChecks && InpReplayAuditEveryBars>0 && useIncremental &&
@@ -12785,7 +13026,7 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    else ObjectsDeleteAll(0,PFX+"PMI_");
    DrawUnifiedEntryPanel();
    // v6.2.0 Master Volume Profile: closed-bar, observational, no entry authority.
-   MVP_Update(rates_total, is_new_bar || prev_calculated==0, is_new_bar || prev_calculated==0);
+   MVP_Update(rates_total, false, is_new_bar || prev_calculated==0 || first_run);
    // v6.3.0 Zone Reaction Engine: closed-bar, observational, no entry authority.
    // Runs after MVP_Update so the active profile levels are current.
    ZRE_Update(rates_total, is_new_bar || detection_updated || prev_calculated==0);
@@ -14293,6 +14534,12 @@ ulong CausalGraphFingerprint()
    for(int k=0;k<StringLen(pmi_row);k++)
    {
       hash^=(ulong)StringGetCharacter(pmi_row,k);
+      hash*=1099511628211;
+   }
+   string smf_row=SMF_StateDigestString();
+   for(int k=0;k<StringLen(smf_row);k++)
+   {
+      hash^=(ulong)StringGetCharacter(smf_row,k);
       hash*=1099511628211;
    }
    return hash;
@@ -16105,6 +16352,7 @@ SCandleIntelligence AnalyzeCandleIntelligence(const int closed,const double &o[]
    ci.is_expansion=false; ci.is_compression=false; ci.consecutive_directional=0;
    ci.failed_breakout=false; ci.liquidity_rejection=false; ci.absorption_behavior=false;
    ci.imbalance_present=false; ci.follow_through=false; ci.volume_expansion=false;
+   ci.volume_ratio=0.0; ci.volume_average=0.0; ci.volume_source="UNAVAILABLE";
    ci.score=0; ci.description="NONE"; ci.confirms_buy=false; ci.confirms_sell=false;
    
    if(closed<3 || closed>=ArraySize(c) || closed>=ArraySize(o) || closed>=ArraySize(h) || closed>=ArraySize(l))
@@ -16178,19 +16426,31 @@ SCandleIntelligence AnalyzeCandleIntelligence(const int closed,const double &o[]
    if(cur_l < min_prev_low && cur_c >= cur_o && lower >= body * 1.5) ci.confirms_buy = true;
    if(cur_h > max_prev_high && cur_c <= cur_o && upper >= body * 1.5) ci.confirms_sell = true;
    
-   // 9. Volume expansion / spike
-   double cur_v = (closed < ArraySize(rv) && rv[closed] > 0 ? (double)rv[closed] : (double)MathMax(1, tv[closed]));
-   double v_sum = 0.0; int v_cnt = 0;
-   for(int b = MathMax(0, closed-20); b < closed; b++)
+   // 9. Closed-bar total-volume expansion. These are tick/real volume counts,
+   // not aggressor-side trades, bid/ask delta, or footprint data.
+   bool cur_real=(closed<ArraySize(rv) && rv[closed]>0);
+   double cur_v=(cur_real ? (double)rv[closed] :
+                 (closed<ArraySize(tv) ? (double)MathMax(0,tv[closed]) : 0.0));
+   double v_sum=0.0; int v_cnt=0; int real_cnt=(cur_real?1:0); int tick_cnt=(cur_real?0:1);
+   for(int b=MathMax(0,closed-20);b<closed;b++)
    {
-      double vb = (b < ArraySize(rv) && rv[b] > 0 ? (double)rv[b] : (double)MathMax(1, tv[b]));
-      v_sum += vb; v_cnt++;
+      bool bar_real=(b<ArraySize(rv) && rv[b]>0);
+      double vb=(bar_real ? (double)rv[b] :
+                 (b<ArraySize(tv) ? (double)MathMax(0,tv[b]) : 0.0));
+      v_sum+=vb; v_cnt++;
+      if(bar_real) real_cnt++; else tick_cnt++;
    }
-   double v_avg = (v_cnt > 0 ? v_sum / v_cnt : cur_v);
-   ci.volume_expansion = (v_avg > 0.0 && cur_v >= v_avg * 1.30);
+   double v_avg=(v_cnt>0 ? v_sum/(double)v_cnt : cur_v);
+   ci.volume_average=v_avg;
+   ci.volume_ratio=(v_avg>0.0 ? cur_v/v_avg : 0.0);
+   if(real_cnt>0 && tick_cnt>0) ci.volume_source="MIXED REAL/TICK TOTAL VOLUME";
+   else if(real_cnt>0)          ci.volume_source="REAL TOTAL VOLUME";
+   else                         ci.volume_source="TICK VOLUME";
+   ci.volume_expansion=(ci.volume_ratio>=1.30);
    
-   // 10. Absorption behavior: high volume with compact body (effort vs result)
-   ci.absorption_behavior = (ci.volume_expansion && ci.body_range_ratio <= 0.40);
+   // 10. Legacy effort/result flag. This is only a VOLUME PROXY, not proof of
+   // institutional absorption or order flow.
+   ci.absorption_behavior=(ci.volume_expansion && ci.body_range_ratio<=0.40);
    
    // 11. Imbalance present: gap between candle wicks
    bool bull_imb = (cur_l > h[closed-2] + _Point);
@@ -16213,21 +16473,22 @@ SCandleIntelligence AnalyzeCandleIntelligence(const int closed,const double &o[]
    if(ci.follow_through)       score += 10;
    ci.score = MathMin(100, score);
    
-   // Structured description using approved professional ICT/SMC phrasing
+   // Explicit language: the indicator has OHLC + volume totals only; it does
+   // not have reliable bid/ask aggressor, footprint, or DOM data.
    if(ci.is_displacement && ci.volume_expansion)
-      ci.description = "INSTITUTIONAL-LIKE PRICE ACTION (DISPLACEMENT + VOLUME EXPANSION)";
+      ci.description="CLOSED-BAR DISPLACEMENT + VOLUME PROXY EXPANSION";
    else if(ci.is_rejection && ci.liquidity_rejection)
-      ci.description = "ORDER-FLOW CONSISTENT BEHAVIOR (LIQUIDITY SWEEP REJECTION)";
+      ci.description="CLOSED-BAR LIQUIDITY-SWEEP PRICE REJECTION (VOLUME PROXY)";
    else if(ci.is_engulfing)
-      ci.description = "INSTITUTIONAL-LIKE PRICE ACTION (ENGULFING ABSORPTION)";
+      ci.description="ENGULFING PRICE ACTION (NO TRUE BID/ASK FLOW)";
    else if(ci.is_displacement)
-      ci.description = "INSTITUTIONAL-LIKE PRICE ACTION (EXPANSIVE DISPLACEMENT)";
+      ci.description="CLOSED-BAR EXPANSIVE DISPLACEMENT";
    else if(ci.is_rejection)
-      ci.description = "ORDER-FLOW CONSISTENT BEHAVIOR (KEY LEVEL WICK REJECTION)";
+      ci.description="CLOSED-BAR KEY-LEVEL WICK REJECTION";
    else if(ci.absorption_behavior)
-      ci.description = "ORDER-FLOW CONSISTENT BEHAVIOR (HIGH-VOLUME ABSORPTION)";
+      ci.description="VOLUME-PROXY EFFORT/RESULT (NOT TRUE ABSORPTION)";
    else
-      ci.description = "STANDARD PRICE ACTION (NO DOMINANT CANDLE EVIDENCE)";
+      ci.description="STANDARD PRICE ACTION (NO DOMINANT CANDLE EVIDENCE)";
       
    return ci;
 }
@@ -16273,7 +16534,7 @@ SInstitutionalBehavior AnalyzeInstitutionalBehavior(const int closed,const bool 
       {
          ib.behavior = IB_REJECTION_FROM_DISCOUNT;
          ib.label = "REJECTION FROM DISCOUNT";
-         ib.sequence_desc = "Price in deep discount -> Order-flow consistent bullish reaction";
+         ib.sequence_desc = "Price in deep discount -> closed-bar price/volume-proxy reaction";
          ib.confidence = 75.0;
       }
       else if(g_candle_intel.is_displacement)
@@ -16304,7 +16565,7 @@ SInstitutionalBehavior AnalyzeInstitutionalBehavior(const int closed,const bool 
       {
          ib.behavior = IB_REJECTION_FROM_PREMIUM;
          ib.label = "REJECTION FROM PREMIUM";
-         ib.sequence_desc = "Price in deep premium -> Order-flow consistent bearish reaction";
+         ib.sequence_desc = "Price in deep premium -> closed-bar price/volume-proxy reaction";
          ib.confidence = 75.0;
       }
       else if(g_candle_intel.is_displacement)
@@ -16555,6 +16816,10 @@ void CalculateSetupQualityScore(SetupCandidate &cand,const int total,const doubl
          else if(g_causal_events[cand.sweep_event].strength >= 1.5) cand.score_liquidity += 3.0;
       }
    }
+   if(InpUseSmartMoneyVolumeEvidence && g_smf.causal_ok &&
+      g_smf.direction==(cand.is_buy?1:-1) && g_smf.integrate_profile && !g_smf.conflict)
+      cand.score_liquidity=0.85*cand.score_liquidity+
+                           0.15*(20.0*g_smf.profile_integrated_score/100.0);
    
    // 3. Displacement Score (0-15)
    if(cand.disp_event >= 0 && cand.disp_event < ArraySize(g_causal_events))
@@ -16587,13 +16852,19 @@ void CalculateSetupQualityScore(SetupCandidate &cand,const int total,const doubl
    }
    
    // 6. Candle Confirmation Score (0-7)
-   if(g_candle_intel.valid)
+   if(InpUseCandleIntelligence && g_candle_intel.valid)
    {
       bool dir_ok = (cand.is_buy ? g_candle_intel.confirms_buy : g_candle_intel.confirms_sell);
+      int candle_100=g_candle_intel.score;
+      bool flow_ok=(InpUseSmartMoneyVolumeEvidence && g_smf.causal_ok &&
+                    g_smf.direction==(cand.is_buy?1:-1) && g_smf.integrate_flow);
+      if(InpUseSmartMoneyVolumeEvidence)
+         candle_100=SMF_AdjustCandleScore(candle_100,g_smf.volume_expansion,
+                                          g_smf.flow_score,flow_ok);
       if(dir_ok)
-         cand.score_candle = MathMin(7.0, (g_candle_intel.score / 100.0) * 7.0 + 2.0);
+         cand.score_candle = MathMin(7.0, (candle_100 / 100.0) * 7.0 + 2.0);
       else
-         cand.score_candle = (g_candle_intel.score / 100.0) * 3.0;
+         cand.score_candle = (candle_100 / 100.0) * 3.0;
    }
    
    // 7. VWAP Context Score (0-3)
@@ -16603,6 +16874,9 @@ void CalculateSetupQualityScore(SetupCandidate &cand,const int total,const doubl
       else if(!cand.is_buy && g_quant.vwap_state == -1) cand.score_vwap = 3.0;
       else if(g_quant.vwap_state == 0)                 cand.score_vwap = 1.5;
    }
+   if(InpUseSmartMoneyVolumeEvidence && g_smf.causal_ok &&
+      g_smf.direction==(cand.is_buy?1:-1) && g_smf.integrate_vwap && !g_smf.conflict)
+      cand.score_vwap=0.85*cand.score_vwap+0.15*(3.0*g_smf.vwap_score/100.0);
    
    // 8. EMA Context Score (0-3)
    if(g_quant.ema_state != 2)
@@ -16682,6 +16956,11 @@ void RankSetupCandidates(SetupCandidate &primary_out,SetupCandidate &secondary_o
 // Append exactly one immutable confirmed-signal fact record per stable setup id.
 bool AppendConfirmedSignalJournal(const STradeSetup &setup,const string candle_conf)
 {
+   if(InpUseSmartMoneyVolumeEvidence && !SMF_FactsCausalValid(setup.smf))
+   {
+      if(InpLogLifecycleTransitions) LogLifecycle("JOURNAL REJECTED: SMF facts failed availability-time audit");
+      return false;
+   }
    if(!setup.valid || setup.setup_event_id=="" ||
       setup.created_bar<0 || setup.created_bar+1>=ArraySize(g_buf_t) ||
       setup.created_time!=g_buf_t[setup.created_bar+1] ||
@@ -16718,7 +16997,8 @@ bool AppendConfirmedSignalJournal(const STradeSetup &setup,const string candle_c
                  g_confirmed_signal_journal[i].displacement_event_id==setup.displacement_event_id &&
                  g_confirmed_signal_journal[i].structure_event_id==setup.structure_event_id &&
                  g_confirmed_signal_journal[i].zone_event_id==setup.zone_event_id &&
-                 g_confirmed_signal_journal[i].candle_confirmation==candle_conf);
+                 g_confirmed_signal_journal[i].candle_confirmation==candle_conf &&
+                 SMF_FactsEqual(g_confirmed_signal_journal[i].smf,setup.smf));
       if(!same && InpLogLifecycleTransitions)
          LogLifecycle("JOURNAL CONFLICT: duplicate setup id has different immutable facts "+setup.setup_event_id);
       return same; // duplicate exact replay is a no-op, never an append/update
@@ -16745,6 +17025,7 @@ bool AppendConfirmedSignalJournal(const STradeSetup &setup,const string candle_c
    g_confirmed_signal_journal[n].structure_event_id=setup.structure_event_id;
    g_confirmed_signal_journal[n].zone_event_id=setup.zone_event_id;
    g_confirmed_signal_journal[n].candle_confirmation=candle_conf;
+   g_confirmed_signal_journal[n].smf=setup.smf;
    return true;
 }
 
@@ -16752,6 +17033,7 @@ bool AppendConfirmedSignalJournal(const STradeSetup &setup,const string candle_c
 bool RecordHistoricalSetup(const STradeSetup &setup,const string regime,const string candle_conf)
 {
    if(!InpUseHistoricalAnalysis) return true;
+   if(InpUseSmartMoneyVolumeEvidence && !SMF_FactsCausalValid(setup.smf)) return false;
    if(!setup.valid || setup.setup_event_id=="" ||
       setup.created_bar<0 || setup.created_bar+1>=ArraySize(g_buf_t) ||
       setup.created_time!=g_buf_t[setup.created_bar+1] ||
@@ -16776,7 +17058,8 @@ bool RecordHistoricalSetup(const STradeSetup &setup,const string regime,const st
                  MathAbs(g_history_setups[i].sl-setup.sl)<=_Point*0.1 &&
                  MathAbs(g_history_setups[i].tp1-setup.tp1)<=_Point*0.1 &&
                  MathAbs(g_history_setups[i].tp2-setup.tp2)<=_Point*0.1 &&
-                 MathAbs(g_history_setups[i].tp3-setup.tp3)<=_Point*0.1);
+                 MathAbs(g_history_setups[i].tp3-setup.tp3)<=_Point*0.1 &&
+                 SMF_FactsEqual(g_history_setups[i].smf,setup.smf));
       return same; // exactly-once: duplicate call must not append or rewrite
    }
 
@@ -16801,6 +17084,7 @@ bool RecordHistoricalSetup(const STradeSetup &setup,const string regime,const st
    g_history_setups[idx].ema_state             = g_quant.ema_state;
    g_history_setups[idx].candle_confirmation   = candle_conf;
    g_history_setups[idx].setup_id              = setup.setup_event_id;
+   g_history_setups[idx].smf                   = setup.smf;
    g_history_setups[idx].resolved              = false;
    g_history_setups[idx].outcome_ambiguous     = false;
    g_history_setups[idx].tp1_hit               = false;
@@ -17156,7 +17440,8 @@ void CalculateAITradeSetup(const int total,const double &o[],const double &h[],c
    //--- candle intelligence (closed bar only)
    SCandleIntel candle=AnalyzeClosedCandle(closed,o,h,l,c,atr);
    g_bar_data = GetBarData(closed,o,h,l,c,g_buf_t,g_buf_tv,g_buf_rv,g_buf_spread,atr,(closed>20?g_quant.volume_ratio*100.0:100.0));
-   if(InpUseCandleIntelligence)
+   if(InpUseCandleIntelligence &&
+      (!InpUseSmartMoneyVolumeEvidence || g_smf_snapshot.closed_bar!=closed))
       g_candle_intel = AnalyzeCandleIntelligence(closed,o,h,l,c,g_buf_tv,g_buf_rv,atr);
    string regime=DetectMarketRegime(closed,atr);
    double regime_mult=RegimeScoreMultiplier(regime);
@@ -17509,10 +17794,32 @@ void CalculateAITradeSetup(const int total,const double &o[],const double &h[],c
    //--- v5.7.3 FIX (A1): zone -> regime -> candle-context stage runs BEFORE
    //    the single final aggregation, so candle context and the adaptive
    //    regime multiplier genuinely reach final_score.
+   //--- v6.6.0 SMF refines existing pillars only; it adds no new weight.
+   double candidate_rr=DirectionalRR(is_buy,entry,sl,tp1);
+   SMF_EvaluateCandidate(closed,is_buy,zone_top,zone_bottom,best_sw,best_dp,best_se,zone_event,
+                         g_causal_diag.causal_valid,g_causal_diag.mss_event_ok,
+                         g_causal_diag.zone_valid,false,(candidate_rr>=InpMinRR1),false,false);
+   if(InpUseSmartMoneyVolumeEvidence && !g_smf.causal_ok)
+   {
+      g_causal_diag.watch=true;
+      g_causal_diag.causal_valid=false;
+      g_causal_diag.causal_fail_reason="SMF closed-bar availability/replay audit failed";
+      GateAuditReject("smart-money evidence: availability/replay audit failed");
+      ApplyCausalDecisionState();
+      DiagnoseDirectionalWatch(total,o,h,l,c);
+      DiagnoseCausalChain(total,o,h,l,c,g_buf_t);
+      return;
+   }
    g_score.structure=ScoreStructure(total,is_buy);
-   g_score.liquidity=ScoreLiquidity(is_buy,g_causal_events[best_se].event_bar);
+   double base_liquidity=ScoreLiquidity(is_buy,g_causal_events[best_se].event_bar);
+   g_score.liquidity=base_liquidity;
+   if(InpUseSmartMoneyVolumeEvidence && g_smf.integrate_profile && !g_smf.conflict)
+      g_score.liquidity=0.85*base_liquidity+0.15*g_smf.profile_integrated_score;
    g_score.session=ScoreSession();
-   g_score.htf=ScoreHTF(is_buy);
+   double base_htf=ScoreHTF(is_buy);
+   g_score.htf=base_htf;
+   if(InpUseSmartMoneyVolumeEvidence && g_smf.integrate_vwap && !g_smf.conflict)
+      g_score.htf=0.85*base_htf+0.15*g_smf.vwap_score;
    double causal_path=CausalPathScore(best_sw,best_dp,best_se,best_ob,best_fv);
    g_score.algo=causal_path;
    g_score.candle_context=(double)ContextualCandleScore(candle,is_buy,price,
@@ -17613,11 +17920,25 @@ void CalculateAITradeSetup(const int total,const double &o[],const double &h[],c
    // Phase 10 & 33 10-Pillar Quality Breakdown mapping
    g_score.score_structure    = (best_se>=0 ? (g_causal_events[best_se].type==CE_MSS?20.0:(g_causal_events[best_se].type==CE_CHOCH?15.0:10.0)) : 0.0);
    g_score.score_liquidity    = (best_sw>=0 ? MathMin(20.0, 14.0 + g_causal_events[best_sw].strength*2.0) : 0.0);
+   if(InpUseSmartMoneyVolumeEvidence && g_smf.integrate_profile && !g_smf.conflict)
+      g_score.score_liquidity=0.85*g_score.score_liquidity+
+                              0.15*(20.0*g_smf.profile_integrated_score/100.0);
    g_score.score_displacement = (best_dp>=0 ? MathMin(15.0, g_causal_events[best_dp].strength*3.5) : 0.0);
    g_score.score_causality    = (causal_path / 100.0) * 15.0;
    g_score.score_retest       = (InpUseRetestLifecycle && g_active_setup.active ? 15.0 : 10.0);
-   g_score.score_candle       = (g_candle_intel.valid ? (g_candle_intel.score / 100.0) * 7.0 : 4.0);
-   g_score.score_vwap         = (g_quant.vwap_state==1 && is_buy ? 3.0 : (!is_buy && g_quant.vwap_state==-1 ? 3.0 : 1.0));
+   bool candle_score_valid=(InpUseCandleIntelligence && g_candle_intel.valid);
+   int candle_score_100=(candle_score_valid ? g_candle_intel.score : 0);
+   bool smf_flow_for_candidate=(InpUseSmartMoneyVolumeEvidence &&
+      g_smf.direction==(is_buy?1:-1) && g_smf.integrate_flow);
+   if(candle_score_valid && InpUseSmartMoneyVolumeEvidence)
+      candle_score_100=SMF_AdjustCandleScore(candle_score_100,g_smf.volume_expansion,
+                                             g_smf.flow_score,smf_flow_for_candidate);
+   g_score.score_candle       = (candle_score_valid ? (candle_score_100 / 100.0) * 7.0 : 4.0);
+   double base_vwap_pillar=(g_quant.vwap_state==1 && is_buy ? 3.0 : (!is_buy && g_quant.vwap_state==-1 ? 3.0 : 1.0));
+   g_score.score_vwap=base_vwap_pillar;
+   if(InpUseSmartMoneyVolumeEvidence && g_smf.direction==(is_buy?1:-1) &&
+      g_smf.integrate_vwap && !g_smf.conflict)
+      g_score.score_vwap=0.85*base_vwap_pillar+0.15*(3.0*g_smf.vwap_score/100.0);
    g_score.score_ema          = (g_quant.ema_state==1 && is_buy ? 3.0 : (!is_buy && g_quant.ema_state==-1 ? 3.0 : 1.0));
    g_score.score_volatility   = (g_quant.vol_class==VOL_NORMAL || g_quant.vol_class==VOL_HIGH ? 2.0 : 1.0);
    g_score.setup_quality_score= g_score.score_structure + g_score.score_liquidity + g_score.score_displacement +
@@ -17767,6 +18088,7 @@ void CalculateAITradeSetup(const int total,const double &o[],const double &h[],c
    g_trade_setup.displacement_event_id=g_causal_events[best_dp].id;
    g_trade_setup.structure_event_id=g_causal_events[best_se].id;
    g_trade_setup.zone_event_id=g_causal_events[zone_event].id;
+   SMF_CopyToFacts(g_smf,g_trade_setup.smf);
    g_trade_setup.causal_path_score=causal_path;
    g_trade_setup.confidence=conf;
    g_trade_setup.knapsack_score=knap;
@@ -17906,6 +18228,7 @@ void CalculateAITradeSetup(const int total,const double &o[],const double &h[],c
       g_active_setup.displacement_event_id=g_trade_setup.displacement_event_id;
       g_active_setup.structure_event_id=g_trade_setup.structure_event_id;
       g_active_setup.zone_event_id=g_trade_setup.zone_event_id;
+      g_active_setup.smf=g_trade_setup.smf;
       g_active_setup.setup_event_id=setup_id;
       g_active_setup.causal_path_score=causal_path;
       g_active_setup.retest_bar=-1;
@@ -18258,6 +18581,7 @@ void ManageSetupLifecycle(const int total,const double &o[],const double &h[],co
       g_trade_setup.immutable_target_barrier_event_id=g_active_setup.immutable_target_barrier_event_id;
       g_trade_setup.immutable_target_barrier_bar=g_active_setup.immutable_target_barrier_bar;
       g_trade_setup.causal_path_score=g_active_setup.causal_path_score;
+      g_trade_setup.smf=g_active_setup.smf;
       EntryMarkCoreFromSetup();   // v6.4.1: publish the entry mark on the immutable confirmed bar
 
       if(!TryTransitionSignalState(STATE_CONFIRMED,g_active_setup.setup_event_id,closed))
@@ -19083,6 +19407,16 @@ void ComputeEntryQuality(const int total)
                   g_causal_diag.directional_watch_is_buy :
                   (g_causal_diag.candidate_structure_bar>=0))));
    double atr=g_quant.atr;
+   SSMFSignalFacts smf_fact; ZeroMemory(smf_fact);
+   bool has_smf=false;
+   if(InpUseSmartMoneyVolumeEvidence)
+   {
+      if(active) { smf_fact=g_active_setup.smf; has_smf=smf_fact.valid; }
+      else if(g_trade_setup.valid) { smf_fact=g_trade_setup.smf; has_smf=smf_fact.valid; }
+      else if(g_smf.enabled) { SMF_CopyToFacts(g_smf,smf_fact); has_smf=smf_fact.valid; }
+   }
+   bool smf_same_direction=(has_smf && smf_fact.causal_ok &&
+                            smf_fact.direction==(is_buy?1:-1));
 
    //--- hard gates (mirror only)
    g_quality.gate_causal_chain=(g_causal_diag.causal_valid && g_causal_diag.zone_valid);
@@ -19171,6 +19505,9 @@ void ComputeEntryQuality(const int total)
    else if(g_quant.vwap_state==-1 && !buy_side) vwap_pts=2.0;
    else if(g_quant.vwap_state==2) vwap_pts=1.0;
    else vwap_pts=0.0;
+   if(smf_same_direction && smf_fact.vwap_available_time<=smf_fact.decision_time &&
+      smf_fact.integrate_vwap && !smf_fact.conflict)
+      vwap_pts=0.85*vwap_pts+0.15*(2.0*smf_fact.vwap_score/100.0);
    double ema_pts=0.0;
    if(g_quant.ema_state==1 && buy_side)  ema_pts=2.0;
    else if(g_quant.ema_state==-1 && !buy_side) ema_pts=2.0;
@@ -19182,6 +19519,15 @@ void ComputeEntryQuality(const int total)
    if(g_quant.volume_spike) vol_pts=3.0;
    else if(g_quant.volume_ratio>=1.20) vol_pts=2.0;
    else if(g_quant.volume_ratio>=0.80) vol_pts=1.0;
+   if(InpUseSmartMoneyVolumeEvidence && has_smf && smf_fact.causal_ok &&
+      smf_fact.volume_expansion)
+   {
+      // Replace raw spike points; no proxy is counted again when its closed bar
+      // is already represented by profile/VWAP location in another score group.
+      vol_pts=(smf_same_direction && smf_fact.integrate_flow ?
+               3.0*smf_fact.flow_score/100.0 : 0.0);
+      if(smf_fact.same_bar_cluster && !smf_fact.integrate_flow) vol_pts=0.0;
+   }
    double vola_pts=0.0;
    if(g_quant.vol_class==VOL_NORMAL || g_quant.vol_class==VOL_HIGH) vola_pts=2.0;
    else if(g_quant.vol_class==VOL_LOW) vola_pts=1.0;
@@ -22130,6 +22476,8 @@ void BuildUnifiedEntryVerdict(string &verdict,string &reason,color &accent,doubl
          verdict="WATCH";
          accent=clrOrange;
          reason=StringFormat("TOP-DOWN BLOCK: %s | core setup withheld until the closed-bar D1->M5 chain agrees.",g_td.blocker);
+         if(InpUseSmartMoneyVolumeEvidence)
+            reason="FLOW: VOLUME PROXY ONLY; TRUE BID/ASK UNAVAILABLE. "+reason;
          return;
       }
       // v6.4.1: with the veto off, an incomplete chain is a GRADE note, not a
@@ -22139,6 +22487,8 @@ void BuildUnifiedEntryVerdict(string &verdict,string &reason,color &accent,doubl
       verdict="CORE SIGNAL CONFIRMED";
       accent=clrLimeGreen;
       reason=StringFormat("Layer A causal and closed-bar confirmation gates passed; evidence blend %.0f/100 is heuristic, not probability.",blend_score);
+      if(InpUseSmartMoneyVolumeEvidence)
+         reason="FLOW: VOLUME PROXY ONLY; TRUE BID/ASK UNAVAILABLE. "+reason;
       return;
    }
 
@@ -22199,6 +22549,8 @@ void BuildUnifiedEntryVerdict(string &verdict,string &reason,color &accent,doubl
          reason=reason+" | evidence quality, not a forecast; non-authoritative";
       }
    }
+   if(InpUseSmartMoneyVolumeEvidence)
+      reason="FLOW: VOLUME PROXY ONLY; TRUE BID/ASK UNAVAILABLE. "+reason;
 }
 
 void DrawUnifiedEntryPanel()
@@ -22310,7 +22662,7 @@ void DrawBattleAnnotations(const int total,const datetime &t[],const double &o[]
       string tag=""; color col=clrSilver; bool buyer=false;
       if(ci.liquidity_rejection){tag="SW";buyer=ci.confirms_buy;col=(buyer?clrLimeGreen:clrTomato);}
       else if(ci.failed_breakout){tag="FB";buyer=ci.confirms_buy;col=clrOrange;}
-      else if(ci.absorption_behavior && ci.confirms_buy){tag="A";buyer=true;col=clrLimeGreen;}
+      else if(ci.absorption_behavior && ci.confirms_buy){tag="EP";buyer=true;col=clrLimeGreen;}
       else if(ci.is_rejection && ci.volume_expansion && ci.confirms_sell){tag="R";buyer=false;col=clrTomato;}
       if(tag=="") continue;
       double pad=MathMax(_Point*3.0,(atr>0.0?atr*0.12:_Point*5.0));
@@ -22352,6 +22704,12 @@ void DrawTradeBox()
                              g_trade_setup.tp1,g_trade_setup.tp2,g_trade_setup.tp3,
                              g_trade_setup.rr1,g_trade_setup.rr2,g_trade_setup.rr3,
                              g_trade_setup.quality_grade);
+   if(InpUseSmartMoneyVolumeEvidence)
+   {
+      if(g_trade_setup.smf.valid && g_trade_setup.smf.profile_response!="")
+         label+=" | "+g_trade_setup.smf.profile_response;
+      label+=" | VOLUME PROXY ONLY; TRUE BID/ASK UNAVAILABLE";
+   }
    DrawZoneBox(PFX+"TRADEBOX",t1,g_trade_setup.zone_top,t2,g_trade_setup.zone_bottom,col,label,85);
 }
 void DrawTradeLevels(const int total,const datetime &t[])
@@ -22872,6 +23230,36 @@ void DrawQuantumDashboard(const int total,const double &c[])
                         g_stats_metrics.resolved_count,MathMax(1,InpMinHistoricalSampleSize)),
                         clrDarkGray,false);
          }
+      }
+   }
+
+   if(InpUseSmartMoneyVolumeEvidence)
+   {
+      color smf_col=(StringFind(g_smf.status,"FAIL")>=0 || StringFind(g_smf.status,"CONFLICT")>=0 ?
+                     clrOrange : (StringFind(g_smf.status,"REACTION")>=0 ? clrAqua : clrSilver));
+      DashLine(L,C,H,ln,"- SMART-MONEY EVIDENCE (CONTEXT ONLY) -",clrDarkSlateGray,true);
+      DashLine(L,C,H,ln,"  "+g_smf.status+" | "+
+               (g_smf.profile_valid?g_smf.profile_tag+" "+g_smf.profile_response+
+                " | "+g_smf.profile_source:"PROFILE UNAVAILABLE"),
+               smf_col,false);
+      DashLine(L,C,H,ln,StringFormat("  VOLUME PROXY: %s %.2fx | TRUE BID/ASK / AGGRESSOR FLOW: UNAVAILABLE",
+               g_smf.volume_source,g_smf.volume_ratio),clrSilver,false);
+      if(full)
+      {
+         DashLine(L,C,H,ln,"  VWAP: "+(g_smf.vwap_valid?g_smf.vwap_response:"UNAVAILABLE")+
+                  " | source "+g_smf.vwap_source,clrSilver,false);
+         DashLine(L,C,H,ln,"  FLOW: "+g_smf.flow_response+" | "+g_smf.integration_note,clrSilver,false);
+         DashLine(L,C,H,ln,StringFormat("  AS-OF: %s | PROFILE REPLAY: %s | builds %d / cache hits %d | profile avg %d us / SMF avg %d us",
+                  (g_smf.causal_ok?"PASS":"FAIL"),g_smf_replay_status,
+                  g_smf_profile_builds,g_smf_profile_cache_hits,
+                  (int)g_smf_profile_avg_us,(int)g_smf_avg_us),
+                  (g_smf.causal_ok?clrDarkGray:clrTomato),false);
+      }
+      else if(g_smf.conflict || g_smf.missing_reason!="")
+      {
+         string smf_why=(g_smf.conflict?g_smf.conflict_reason:g_smf.missing_reason);
+         if(StringLen(smf_why)>86) smf_why=StringSubstr(smf_why,0,83)+"...";
+         DashLine(L,C,H,ln,"  WHY: "+smf_why,smf_col,false);
       }
    }
 
@@ -24687,9 +25075,9 @@ bool MVP_DecideReal(const int closed)
 double MVP_BaseRow(const int closed, const double tick)
 {
    if(g_mvp_cfg.row_ticks>0) return g_mvp_cfg.row_ticks*tick;
-   double atr=g_atr;
-   if((!MathIsValidNumber(atr) || atr<=0.0) && closed>=0 && closed<ArraySize(g_atr_buf))
-      atr=g_atr_buf[closed];
+   // Always anchor row-size to the profile's own as-of ATR. Using global
+   // g_atr here made historical profile reconstruction depend on today's ATR.
+   double atr=(closed>=0 && closed<ArraySize(g_atr_buf) ? g_atr_buf[closed] : 0.0);
    if(!MathIsValidNumber(atr) || atr<=0.0)
    {
       double acc=0.0;
@@ -25042,6 +25430,33 @@ void MVP_Rebuild(const int rates_total)
    MVP_AssignActive();
    MVP_CollectNaked(closed);
    g_mvp_view_sig=MVP_ViewSignature();
+}
+
+void MVP_EnsureDecisionSnapshot(const int rates_total,const bool force_rebuild)
+{
+   if(!InpUseMasterVolumeProfile || rates_total<3) return;
+   // In non-visual Tester/optimization runs, the viewport-only display profile
+   // is intentionally skipped; SMF uses its deterministic rolling as-of profile.
+   if(InpMVPMode==MVP_MODE_VISIBLE &&
+      (MQLInfoInteger(MQL_OPTIMIZATION)!=0 ||
+       (MQLInfoInteger(MQL_TESTER)!=0 && MQLInfoInteger(MQL_VISUAL_MODE)==0))) return;
+   if(ArraySize(g_buf_h)<rates_total || ArraySize(g_buf_l)<rates_total ||
+      ArraySize(g_buf_o)<rates_total || ArraySize(g_buf_c)<rates_total ||
+      ArraySize(g_buf_t)<rates_total || ArraySize(g_buf_tv)<rates_total) return;
+   int closed=rates_total-2;
+   if(closed<1 || closed+1>=ArraySize(g_buf_t)) return;
+   datetime decision_bar_time=g_buf_t[closed];
+   bool view_changed=(InpMVPMode==MVP_MODE_VISIBLE && MVP_ViewSignature()!=g_mvp_view_sig);
+   bool rebuild=(force_rebuild || view_changed || g_mvp_built_time!=decision_bar_time ||
+                 (g_mvp_built_time==0 && g_mvp_count==0));
+   // The force flag is set only for a new bar, initial attach, or an explicit
+   // full rebuild; ordinary same-bar redraws reuse the closed-bar snapshot.
+   if(!rebuild) return;
+   long profile_start_us=(long)GetMicrosecondCount();
+   MVP_Rebuild(rates_total);
+   g_smf_profile_builds++;
+   SMF_RecordProfileTime(profile_start_us);
+   g_mvp_built_time=decision_bar_time;
 }
 
 void MVP_Clear()
@@ -25481,7 +25896,8 @@ void MVP_Update(const int rates_total, const bool force_rebuild, const bool forc
    bool view_changed=false;
    if(InpMVPMode==MVP_MODE_VISIBLE)
       view_changed=(MVP_ViewSignature()!=g_mvp_view_sig);
-   bool rebuild=force_rebuild || view_changed || g_mvp_built_time!=g_buf_t[closed] || g_mvp_count==0;
+   bool rebuild=force_rebuild || view_changed || g_mvp_built_time!=g_buf_t[closed] ||
+                (g_mvp_count==0 && g_mvp_built_time==0);
    bool draw=rebuild || force_draw;
    if(!draw) return;
    if(rebuild)
@@ -25491,6 +25907,1388 @@ void MVP_Update(const int rates_total, const bool force_rebuild, const bool forc
    }
    MVP_Draw(rates_total);
    ResolveChartLabelCollisions();
+}
+
+//====================================================================
+// v6.6.0 SMART-MONEY PROFILE / VWAP / VOLUME-PROXY EVIDENCE
+// All calculations consume the canonical chronological arrays and the
+// last closed bar only. This block is observational/contextual; causal
+// sequence, geometry, lifecycle, and entry authority remain unchanged.
+//====================================================================
+
+double SMF_Clamp(const double value,const double lo,const double hi)
+{
+   if(value<lo) return lo;
+   if(value>hi) return hi;
+   return value;
+}
+
+void SMF_AddNote(string &dst,const string note,const int max_len=700)
+{
+   if(note=="") return;
+   if(dst!="") dst+="; ";
+   dst+=note;
+   if(StringLen(dst)>max_len) dst=StringSubstr(dst,0,max_len-3)+"...";
+}
+
+ulong SMF_HashString(const string value,ulong seed=1469598103934665603)
+{
+   ulong hash=seed;
+   for(int i=0;i<StringLen(value);i++)
+   {
+      hash^=(ulong)StringGetCharacter(value,i);
+      hash*=1099511628211;
+   }
+   return hash;
+}
+
+string SMF_OrderFlowDisclosure()
+{
+   return "VOLUME PROXY ONLY; TRUE BID/ASK / AGGRESSOR FLOW UNAVAILABLE";
+}
+
+string SMF_MVPSourceLabel(const bool use_real)
+{
+   if(use_real) return "REAL TOTAL VOLUME (NO BID/ASK)";
+   if(InpMVPVolumeSource==QVS_REAL) return "TICK-FALLBACK TOTAL VOLUME";
+   return "TICK VOLUME";
+}
+
+bool SMF_CausalTimeValid(const datetime availability_time,const datetime decision_time)
+{
+   return (availability_time>0 && decision_time>0 && availability_time<=decision_time);
+}
+
+bool SMF_ProfileAsOfValid(const int profile_end_bar,const int decision_bar,
+                          const datetime profile_available_time,const datetime decision_time)
+{
+   return (profile_end_bar>=0 && decision_bar>=0 && profile_end_bar<=decision_bar &&
+           SMF_CausalTimeValid(profile_available_time,decision_time));
+}
+
+void SMF_ResetEvidence(SSmartMoneyEvidence &e)
+{
+   e.enabled=false; e.valid=false; e.causal_ok=true; e.closed_bar=-1; e.direction=0;
+   e.candle_close_location=0.5; e.candle_body_ratio=0.0; e.candle_wick_ratio=0.0;
+   e.candle_confirms_buy=false; e.candle_confirms_sell=false;
+   e.candle_is_displacement=false; e.candle_effort_result_proxy=false;
+   e.decision_time=0; e.profile_start_time=0; e.profile_end_time=0;
+   e.profile_available_time=0; e.vwap_available_time=0; e.volume_available_time=0;
+   e.event_available_time=0; e.profile_start_bar=-1; e.profile_end_bar=-1;
+   e.profile_poc=0.0; e.profile_vah=0.0; e.profile_val=0.0; e.profile_row_size=0.0;
+   e.profile_hvn_count=0; e.profile_lvn_count=0;
+   for(int i=0;i<SMF_PROFILE_NODE_MAX;i++)
+   { e.profile_hvn[i]=0.0; e.profile_lvn[i]=0.0; }
+   e.vwap_value=0.0; e.previous_vwap=0.0; e.volume_ratio=0.0; e.volume_average=0.0;
+   e.profile_integrated_score=50.0; e.profile_score=50; e.vwap_score=50; e.flow_score=0;
+   e.profile_valid=false; e.vwap_valid=false; e.volume_valid=false;
+   e.profile_touch=false; e.profile_boundary_touch=false; e.profile_node_touch=false;
+   e.profile_rejection=false; e.vwap_touch=false; e.vwap_event=false;
+   e.vwap_reclaim=false; e.vwap_rejection=false; e.vwap_aligned=false;
+   e.volume_expansion=false; e.flow_directional=false; e.absorption_proxy=false;
+   e.displacement=false; e.causal_chain_ok=false; e.structure_ok=false; e.zone_ok=false;
+   e.retest_ok=false; e.rr_ok=false; e.authority_ok=false; e.conflict=false; e.forming=false;
+   e.integrate_profile=false; e.integrate_vwap=false; e.integrate_flow=false;
+   e.shared_bar_cluster=false; e.true_bid_ask_available=false; e.profile_fingerprint=0;
+   e.profile_tag=""; e.profile_source="UNAVAILABLE"; e.volume_source="UNAVAILABLE";
+   e.vwap_source="UNAVAILABLE"; e.profile_response="UNAVAILABLE";
+   e.vwap_response="UNAVAILABLE"; e.flow_response="UNAVAILABLE";
+   e.conflict_reason=""; e.integration_note=""; e.status="NO DATA";
+   e.missing_reason=""; e.event_provenance="";
+   e.sweep_event_id=""; e.displacement_event_id=""; e.structure_event_id="";
+   e.zone_event_id=""; e.provenance="";
+}
+
+void SMF_ResetState()
+{
+   SMF_ResetEvidence(g_smf);
+   SMF_ResetEvidence(g_smf_snapshot);
+   for(int i=0;i<SMF_REPLAY_RING_SIZE;i++)
+   {
+      g_smf_replay_ring[i].valid=false;
+      g_smf_replay_ring[i].decision_bar=-1;
+      g_smf_replay_ring[i].decision_time=0;
+      g_smf_replay_ring[i].profile_start_bar=-1;
+      g_smf_replay_ring[i].profile_end_bar=-1;
+      g_smf_replay_ring[i].profile_start_time=0;
+      g_smf_replay_ring[i].profile_end_time=0;
+      g_smf_replay_ring[i].profile_available_time=0;
+      g_smf_replay_ring[i].profile_poc=0.0;
+      g_smf_replay_ring[i].profile_vah=0.0;
+      g_smf_replay_ring[i].profile_val=0.0;
+      g_smf_replay_ring[i].profile_row_size=0.0;
+      g_smf_replay_ring[i].profile_fingerprint=0;
+      g_smf_replay_ring[i].profile_tag="";
+      g_smf_replay_ring[i].profile_source="";
+   }
+   g_smf_replay_head=0; g_smf_replay_count=0;
+   g_smf_replay_checks=0; g_smf_replay_passes=0; g_smf_replay_failures=0;
+   g_smf_profile_builds=0; g_smf_profile_cache_hits=0;
+   g_smf_last_us=0; g_smf_avg_us=0;
+   g_smf_profile_last_us=0; g_smf_profile_avg_us=0;
+   g_smf_replay_status="NOT RUN";
+   g_smf_current_audit_time=0; g_smf_current_audit_ok=true;
+}
+
+void SMF_RecordProfileTime(const long start_us)
+{
+   long elapsed=(long)GetMicrosecondCount()-start_us;
+   if(elapsed<0) elapsed=0;
+   g_smf_profile_last_us=elapsed;
+   g_smf_profile_avg_us=(g_smf_profile_avg_us<=0 ? elapsed :
+                          (g_smf_profile_avg_us*7+elapsed)/8);
+}
+
+ulong SMF_ProfileFingerprint(const SMVPProfile &p,const string tag,const string source)
+{
+   string row=StringFormat("SMFVP|%s|%s|%d|%d|%I64d|%I64d|%d|%.12f|%.12f|%.12f|%.12f|%.12f|%.12f|%d|%d|%d|%d|%.6f",
+      tag,source,p.bar_start,p.bar_end,(long)p.t_start,(long)p.t_end,p.rows,
+      p.poc,p.vah,p.val,p.price_lo,p.row_size,p.total,p.poc_row,p.va_lo,p.va_hi,
+      (int)InpMVPDistribution,InpMVPValueAreaPct);
+   ulong hash=SMF_HashString(row);
+   string cfg="CFG|"+IntegerToString((int)g_mvp_cfg.mode)+
+      "|"+IntegerToString((int)g_mvp_cfg.anchor)+"|"+(g_mvp_cfg.triangle?"TRI":"UNIFORM")+
+      "|"+DoubleToString(g_mvp_cfg.va_pct,8)+"|"+DoubleToString(g_mvp_cfg.row_atr,8)+
+      "|"+IntegerToString(g_mvp_cfg.row_ticks)+"|"+IntegerToString(g_mvp_cfg.min_bars)+
+      "|"+IntegerToString(g_mvp_cfg.fixed_bars)+"|"+IntegerToString(g_mvp_cfg.day_lb)+
+      "|"+IntegerToString(g_mvp_cfg.sess_lb)+"|"+IntegerToString(g_mvp_cfg.week_lb)+
+      "|"+(g_mvp_cfg.show_hist?"HIST":"CURRENT")+
+      "|"+DoubleToString(g_mvp_cfg.hvn_frac,8)+"|"+DoubleToString(g_mvp_cfg.lvn_frac,8);
+   hash=SMF_HashString(cfg,hash);
+   for(int i=0;i<p.rows && i<MVP_MAX_ROWS;i++)
+   {
+      string cell=StringFormat("|%d:%.10f:%.10f:%.10f",i,p.vol[i],p.buy[i],p.sell[i]);
+      hash=SMF_HashString(cell,hash);
+   }
+   for(int i=0;i<p.hvn_n && i<MVP_MAX_NODES;i++)
+      hash=SMF_HashString(StringFormat("|HVN%d:%.10f",i,p.hvn_px[i]),hash);
+   for(int i=0;i<p.lvn_n && i<MVP_MAX_NODES;i++)
+      hash=SMF_HashString(StringFormat("|LVN%d:%.10f",i,p.lvn_px[i]),hash);
+   return hash;
+}
+
+// Re-derive one profile using bars no later than `asof`. For VISIBLE mode the
+// evidence engine uses a deterministic rolling window, not the chart viewport.
+bool SMF_BuildProfileAsOf(const int asof,SMVPProfile &p,string &tag,bool &use_real)
+{
+   ZeroMemory(p);
+   tag=""; use_real=false;
+   if(!InpUseMasterVolumeProfile || asof<1 || asof>=ArraySize(g_buf_t) ||
+      asof>=ArraySize(g_buf_h) || asof>=ArraySize(g_buf_l) || asof+1>=ArraySize(g_buf_t))
+      return false;
+
+   long profile_start_us=(long)GetMicrosecondCount();
+   g_smf_profile_builds++;
+   MVP_LoadConfig();
+   double tick=MVP_Tick();
+   use_real=MVP_DecideReal(asof);
+   bool saved_real=g_mvp_use_real;
+   g_mvp_use_real=use_real;
+   double base_row=MVP_BaseRow(asof,tick);
+   int from=-1,to=-1;
+
+   if(g_mvp_cfg.mode==MVP_MODE_VISIBLE)
+   {
+      int window=MathMax(10,g_mvp_cfg.fixed_bars);
+      from=MathMax(0,asof-window+1); to=asof; tag="VISIBLE-ROLL";
+   }
+   else if(g_mvp_cfg.mode==MVP_MODE_FIXED)
+   {
+      from=MathMax(0,asof-g_mvp_cfg.fixed_bars+1); to=asof; tag="FIXED";
+   }
+   else if(g_mvp_cfg.mode==MVP_MODE_WEEKLY)
+   {
+      if(MVP_FindPeriod(asof,0,true,from,to)) tag="WEEK";
+   }
+   else if(g_mvp_cfg.mode==MVP_MODE_SESSION)
+   {
+      ENUM_SESSION_ID sessions[3]; sessions[0]=SESSION_ASIA;
+      sessions[1]=SESSION_LONDON; sessions[2]=SESSION_NEWYORK;
+      string names[3]; names[0]="ASIA"; names[1]="LONDON"; names[2]="NY";
+      int colors[3]; colors[0]=1; colors[1]=2; colors[2]=3;
+      int lookback=(g_mvp_cfg.show_hist?g_mvp_cfg.sess_lb:1);
+      int best_to=-1,best_color=-1;
+      for(int si=0;si<3;si++)
+      {
+         int froms[],tos[],n=0;
+         MVP_CollectSessionRuns(asof,sessions[si],lookback,froms,tos,n);
+         if(n<=0) continue;
+         if(tos[0]>best_to || (tos[0]==best_to && colors[si]>best_color))
+         {
+            from=froms[0]; to=tos[0]; best_to=to; best_color=colors[si];
+            tag=names[si];
+         }
+      }
+   }
+   else
+   {
+      if(MVP_FindPeriod(asof,0,false,from,to)) tag="MASTER";
+   }
+
+   bool ok=false;
+   if(from>=0 && to>=from && to<=asof && to-from+1>=g_mvp_cfg.min_bars)
+   {
+      ok=MVP_BuildBars(p,from,to,base_row,tick);
+      if(ok) p.developing=(to==asof);
+   }
+   g_mvp_use_real=saved_real;
+   SMF_RecordProfileTime(profile_start_us);
+   if(!ok) { ZeroMemory(p); tag=""; return false; }
+   return (p.valid && p.bar_end<=asof && p.bar_end+1<ArraySize(g_buf_t));
+}
+
+void SMF_CopyProfile(SMVPProfile &dst,const SMVPProfile &src)
+{
+   ZeroMemory(dst);
+   dst.valid=src.valid; dst.developing=src.developing; dst.dock_right=src.dock_right;
+   dst.rows=src.rows; dst.poc_row=src.poc_row; dst.va_lo=src.va_lo; dst.va_hi=src.va_hi;
+   dst.hvn_n=src.hvn_n; dst.lvn_n=src.lvn_n;
+   dst.bar_start=src.bar_start; dst.bar_end=src.bar_end;
+   dst.row_size=src.row_size; dst.price_lo=src.price_lo; dst.total=src.total;
+   dst.buy_total=src.buy_total; dst.sell_total=src.sell_total;
+   dst.poc=src.poc; dst.vah=src.vah; dst.val=src.val; dst.vwap=src.vwap; dst.peak=src.peak;
+   dst.t_start=src.t_start; dst.t_end=src.t_end;
+   for(int i=0;i<MVP_MAX_NODES;i++)
+   { dst.hvn_px[i]=src.hvn_px[i]; dst.lvn_px[i]=src.lvn_px[i]; }
+   for(int i=0;i<MVP_MAX_ROWS;i++)
+   { dst.vol[i]=src.vol[i]; dst.buy[i]=src.buy[i]; dst.sell[i]=src.sell[i]; }
+}
+
+bool SMF_ProfileAtDecision(const int asof,SMVPProfile &p,string &tag,bool &use_real)
+{
+   ZeroMemory(p); tag=""; use_real=false;
+   if(!InpUseMasterVolumeProfile) return false;
+   if(asof==g_rates_total-2 && asof>=0 && asof<ArraySize(g_buf_t) &&
+      g_mvp_built_time==g_buf_t[asof] && InpMVPMode!=MVP_MODE_VISIBLE &&
+      g_mvp_active>=0 && g_mvp_active<g_mvp_count && g_mvp[g_mvp_active].valid &&
+      g_mvp[g_mvp_active].bar_end<=asof)
+   {
+      SMF_CopyProfile(p,g_mvp[g_mvp_active]);
+      tag=g_mvp_tag[g_mvp_active]; use_real=g_mvp_use_real;
+      g_smf_profile_cache_hits++;
+      return true;
+   }
+   bool ok=SMF_BuildProfileAsOf(asof,p,tag,use_real);
+   return ok;
+}
+
+// Candidate-relative value-area context; a touch alone is explicitly weak.
+int SMF_ProfileScore(const SMVPProfile &p,const int direction,const double high,
+                     const double low,const double close_px,const double close_loc,
+                     const double atr,bool &touch,bool &boundary_touch,
+                     bool &node_touch,bool &rejection,string &response)
+{
+   touch=false; boundary_touch=false; node_touch=false; rejection=false;
+   response="PROFILE NEUTRAL";
+   if(!p.valid || p.rows<=0 || p.row_size<=0.0 || (direction!=1 && direction!=-1))
+      return 50;
+   double tol=MathMax(_Point*2.0,MathMax(p.row_size*1.25,atr*0.08));
+   bool val_touch=(low<=p.val+tol && high>=p.val-tol);
+   bool vah_touch=(low<=p.vah+tol && high>=p.vah-tol);
+   bool poc_touch=(low<=p.poc+tol && high>=p.poc-tol);
+   boundary_touch=(val_touch || vah_touch || poc_touch);
+   bool hvn_touch=false,lvn_touch=false;
+   double touched_hvn=0.0,touched_lvn=0.0;
+   for(int i=0;i<p.hvn_n && i<SMF_PROFILE_NODE_MAX;i++)
+      if(low<=p.hvn_px[i]+tol && high>=p.hvn_px[i]-tol)
+      { if(!hvn_touch) touched_hvn=p.hvn_px[i]; hvn_touch=true; }
+   for(int i=0;i<p.lvn_n && i<SMF_PROFILE_NODE_MAX;i++)
+      if(low<=p.lvn_px[i]+tol && high>=p.lvn_px[i]-tol)
+      { if(!lvn_touch) touched_lvn=p.lvn_px[i]; lvn_touch=true; }
+   node_touch=(hvn_touch || lvn_touch);
+   touch=(boundary_touch || node_touch);
+
+   int score=50;
+   if(direction>0)
+   {
+      bool swept=(low<p.val-MathMax(_Point,p.row_size*0.15));
+      rejection=(val_touch && close_px>p.val && close_loc>=0.60) ||
+                (swept && close_px>p.val && close_loc>=0.55);
+      if(rejection)
+      { score=95; response=(swept?"VAL SWEEP / RECLAIM":"VAL REJECTION"); }
+      else if(val_touch)
+      { score=42; response="VAL TOUCH / NO REJECTION"; }
+      else if(close_px<p.val-tol)
+      { score=20; response="BELOW VAL / BUY LOCATION OPPOSED"; }
+      else if(close_px>p.vah+tol)
+      { score=76; response="ACCEPTED ABOVE VAH"; }
+      else if(close_px<=p.poc)
+      { score=64; response="IN VALUE / DISCOUNT SIDE"; }
+      else
+      { score=52; response=(poc_touch?"POC ROTATION":"IN VALUE / ABOVE POC"); }
+   }
+   else
+   {
+      bool swept=(high>p.vah+MathMax(_Point,p.row_size*0.15));
+      rejection=(vah_touch && close_px<p.vah && close_loc<=0.40) ||
+                (swept && close_px<p.vah && close_loc<=0.45);
+      if(rejection)
+      { score=95; response=(swept?"VAH SWEEP / REJECTION":"VAH REJECTION"); }
+      else if(vah_touch)
+      { score=42; response="VAH TOUCH / NO REJECTION"; }
+      else if(close_px>p.vah+tol)
+      { score=20; response="ABOVE VAH / SELL LOCATION OPPOSED"; }
+      else if(close_px<p.val-tol)
+      { score=76; response="ACCEPTED BELOW VAL"; }
+      else if(close_px>=p.poc)
+      { score=64; response="IN VALUE / PREMIUM SIDE"; }
+      else
+      { score=52; response=(poc_touch?"POC ROTATION":"IN VALUE / BELOW POC"); }
+   }
+   // HVN/LVN identify location only: neither node touch nor node type gives
+   // directional credit without a separately-confirmed VAH/VAL response.
+   if(hvn_touch)
+      response+=StringFormat("; HVN %.5f LOCATION (NON-DIRECTIONAL)",touched_hvn);
+   if(lvn_touch)
+      response+=StringFormat("; LVN %.5f LOCATION (NON-DIRECTIONAL)",touched_lvn);
+   return score;
+}
+
+int SMF_FlowProxyScore(const bool volume_expansion,const double volume_ratio,
+                       const double directional_close_location,const bool candle_confirms)
+{
+   if(!volume_expansion || !candle_confirms || volume_ratio<1.30) return 0;
+   double v=SMF_Clamp((volume_ratio-1.30)/(2.50-1.30)*100.0,0.0,100.0);
+   double d=SMF_Clamp((directional_close_location-0.50)/0.40*100.0,0.0,100.0);
+   if(d<=0.0 || v<=0.0) return 0;
+   return (int)MathRound(MathSqrt(v*d));
+}
+
+bool SMF_IsAbsorptionProxy(const bool volume_expansion,const double volume_ratio,
+                           const double body_ratio,const double wick_body_ratio)
+{
+   return (volume_expansion && volume_ratio>=1.50 && body_ratio<=0.40 && wick_body_ratio>=0.80);
+}
+
+int SMF_FindReplayRecord(const datetime decision_time)
+{
+   if(decision_time<=0) return -1;
+   for(int k=0;k<g_smf_replay_count;k++)
+   {
+      int idx=(g_smf_replay_head-1-k+SMF_REPLAY_RING_SIZE)%SMF_REPLAY_RING_SIZE;
+      if(g_smf_replay_ring[idx].valid && g_smf_replay_ring[idx].decision_time==decision_time)
+         return idx;
+   }
+   return -1;
+}
+
+void SMF_StoreReplayRecord(const int closed,const SSmartMoneyEvidence &e)
+{
+   if(!e.profile_valid || closed<0 || closed+1>=ArraySize(g_buf_t)) return;
+   int idx=SMF_FindReplayRecord(e.decision_time);
+   bool fresh=(idx<0);
+   if(fresh) idx=g_smf_replay_head;
+   g_smf_replay_ring[idx].valid=true;
+   g_smf_replay_ring[idx].decision_bar=closed;
+   g_smf_replay_ring[idx].decision_time=e.decision_time;
+   g_smf_replay_ring[idx].profile_start_bar=e.profile_start_bar;
+   g_smf_replay_ring[idx].profile_end_bar=e.profile_end_bar;
+   g_smf_replay_ring[idx].profile_start_time=e.profile_start_time;
+   g_smf_replay_ring[idx].profile_end_time=e.profile_end_time;
+   g_smf_replay_ring[idx].profile_available_time=e.profile_available_time;
+   g_smf_replay_ring[idx].profile_poc=e.profile_poc;
+   g_smf_replay_ring[idx].profile_vah=e.profile_vah;
+   g_smf_replay_ring[idx].profile_val=e.profile_val;
+   g_smf_replay_ring[idx].profile_row_size=e.profile_row_size;
+   g_smf_replay_ring[idx].profile_fingerprint=e.profile_fingerprint;
+   g_smf_replay_ring[idx].profile_tag=e.profile_tag;
+   g_smf_replay_ring[idx].profile_source=e.profile_source;
+   if(fresh)
+   {
+      g_smf_replay_head=(g_smf_replay_head+1)%SMF_REPLAY_RING_SIZE;
+      g_smf_replay_count=MathMin(SMF_REPLAY_RING_SIZE,g_smf_replay_count+1);
+   }
+}
+
+bool SMF_AuditReplayRecord(const SSMFReplayRecord &rec)
+{
+   g_smf_replay_checks++;
+   int asof=rec.decision_bar;
+   int total=ArraySize(g_buf_t);
+   if(asof<0 || asof+1>=total || g_buf_t[asof+1]!=rec.decision_time)
+   {
+      int decision_open=ChartClosedBarAtTime(g_buf_t,total,rec.decision_time);
+      asof=decision_open-1;
+   }
+   if(asof<1 || asof+1>=total || g_buf_t[asof+1]!=rec.decision_time ||
+      !SMF_ProfileAsOfValid(rec.profile_end_bar,rec.decision_bar,
+                            rec.profile_available_time,rec.decision_time))
+   {
+      // If history indices shifted, validate the reconstructed index against
+      // the immutable timestamps rather than assuming an old array offset.
+      if(asof<1 || asof+1>=total || g_buf_t[asof+1]!=rec.decision_time ||
+         rec.profile_end_time>g_buf_t[asof] || rec.profile_available_time>rec.decision_time)
+      { g_smf_replay_failures++; return false; }
+   }
+   if(rec.profile_available_time>rec.decision_time || rec.profile_end_time>g_buf_t[asof])
+   { g_smf_replay_failures++; return false; }
+
+   SMVPProfile replay; string tag=""; bool real=false;
+   bool ok=SMF_BuildProfileAsOf(asof,replay,tag,real);
+   string source=SMF_MVPSourceLabel(real);
+   if(!ok || replay.bar_end>asof || replay.bar_end+1>=ArraySize(g_buf_t))
+   { g_smf_replay_failures++; return false; }
+   datetime avail=g_buf_t[replay.bar_end+1];
+   ulong fingerprint=SMF_ProfileFingerprint(replay,tag,source);
+   bool same=(SMF_ProfileAsOfValid(replay.bar_end,asof,avail,rec.decision_time) &&
+              tag==rec.profile_tag && source==rec.profile_source &&
+              replay.bar_start==rec.profile_start_bar && replay.bar_end==rec.profile_end_bar &&
+              replay.t_start==rec.profile_start_time && replay.t_end==rec.profile_end_time &&
+              MathAbs(replay.poc-rec.profile_poc)<=_Point*0.1 &&
+              MathAbs(replay.vah-rec.profile_vah)<=_Point*0.1 &&
+              MathAbs(replay.val-rec.profile_val)<=_Point*0.1 &&
+              MathAbs(replay.row_size-rec.profile_row_size)<=_Point*0.1 &&
+              fingerprint==rec.profile_fingerprint);
+   if(same) g_smf_replay_passes++;
+   else     g_smf_replay_failures++;
+   return same;
+}
+
+bool SMF_ReplayCheckCurrent(const int closed)
+{
+   if(!g_smf_snapshot.profile_valid) return true;
+   if(g_smf_current_audit_time==g_smf_snapshot.decision_time)
+      return g_smf_current_audit_ok;
+   g_smf_current_audit_time=g_smf_snapshot.decision_time;
+   g_smf_current_audit_ok=false;
+   int idx=SMF_FindReplayRecord(g_smf_snapshot.decision_time);
+   if(idx<0)
+   {
+      g_smf_replay_status="CURRENT BASELINE MISSING";
+      g_smf_replay_failures++;
+      return false;
+   }
+   SSMFReplayRecord rec=g_smf_replay_ring[idx];
+   g_smf_replay_checks++;
+   bool ok=(rec.decision_time==g_smf_snapshot.decision_time &&
+      (rec.decision_bar==closed || rec.decision_time==g_smf_snapshot.decision_time) &&
+      SMF_ProfileAsOfValid(g_smf_snapshot.profile_end_bar,closed,
+         g_smf_snapshot.profile_available_time,g_smf_snapshot.decision_time) &&
+      g_smf_snapshot.profile_end_time<=g_buf_t[closed] &&
+      rec.profile_start_time==g_smf_snapshot.profile_start_time &&
+      rec.profile_end_time==g_smf_snapshot.profile_end_time &&
+      rec.profile_available_time==g_smf_snapshot.profile_available_time &&
+      rec.profile_fingerprint==g_smf_snapshot.profile_fingerprint &&
+      rec.profile_tag==g_smf_snapshot.profile_tag &&
+      rec.profile_source==g_smf_snapshot.profile_source &&
+      MathAbs(rec.profile_poc-g_smf_snapshot.profile_poc)<=_Point*0.1 &&
+      MathAbs(rec.profile_vah-g_smf_snapshot.profile_vah)<=_Point*0.1 &&
+      MathAbs(rec.profile_val-g_smf_snapshot.profile_val)<=_Point*0.1);
+   if(ok) g_smf_replay_passes++;
+   else g_smf_replay_failures++;
+   g_smf_current_audit_ok=ok;
+   g_smf_replay_status=(ok?"CURRENT SNAPSHOT PASS":"CURRENT SNAPSHOT FAIL");
+   return ok;
+}
+
+void SMF_ReplayAuditRecent(const int closed)
+{
+   if(InpSMFReplayAuditEveryBars<=0 || closed<0 ||
+      (closed%InpSMFReplayAuditEveryBars)!=0) return;
+   int want=(int)MathMax(1,MathMin(8,InpSMFReplayAuditSamples));
+   int stride=(int)MathMax(1,InpSMFReplayAuditEveryBars/MathMax(1,want));
+   int checked=0,passed=0;
+   bool deterministic_checked=false;
+   for(int sample=0;sample<want;sample++)
+   {
+      int b=closed-sample*stride;
+      if(b<1 || b+1>=ArraySize(g_buf_t)) continue;
+      datetime decision=g_buf_t[b+1];
+      int idx=SMF_FindReplayRecord(decision);
+      if(idx>=0)
+      {
+         SSMFReplayRecord rec=g_smf_replay_ring[idx];
+         checked++;
+         if(SMF_AuditReplayRecord(rec)) passed++;
+         continue;
+      }
+      // Initial attachment has no old ring records. Reconstruct selected
+      // historical bars strictly as-of each decision boundary instead of
+      // silently reporting "no replay" for all loaded history.
+      SMVPProfile replay; string tag=""; bool real=false;
+      bool ok=SMF_BuildProfileAsOf(b,replay,tag,real);
+      if(!ok || replay.bar_end+1>=ArraySize(g_buf_t)) continue; // configured profile unavailable
+      checked++; g_smf_replay_checks++;
+      datetime available=g_buf_t[replay.bar_end+1];
+      string source=SMF_MVPSourceLabel(real);
+      bool causal=(SMF_ProfileAsOfValid(replay.bar_end,b,available,decision) &&
+                   replay.t_end<=g_buf_t[b]);
+      bool deterministic=true;
+      if(!deterministic_checked && causal)
+      {
+         deterministic_checked=true;
+         SMVPProfile again; string again_tag=""; bool again_real=false;
+         deterministic=(SMF_BuildProfileAsOf(b,again,again_tag,again_real) &&
+            again_tag==tag && SMF_MVPSourceLabel(again_real)==source &&
+            SMF_ProfileFingerprint(again,again_tag,SMF_MVPSourceLabel(again_real))==
+            SMF_ProfileFingerprint(replay,tag,source));
+      }
+      if(causal && deterministic) {passed++; g_smf_replay_passes++;}
+      else g_smf_replay_failures++;
+   }
+   if(checked<=0) g_smf_replay_status="NO AS-OF PROFILE SNAPSHOTS AVAILABLE";
+   else if(passed==checked)
+      g_smf_replay_status=StringFormat("PASS %d/%d AS-OF REPLAY",passed,checked);
+   else
+      g_smf_replay_status=StringFormat("FAIL %d/%d AS-OF REPLAY",passed,checked);
+}
+
+void SMF_UpdateSnapshot(const int rates_total,const bool force)
+{
+   if(!InpUseSmartMoneyVolumeEvidence)
+   {
+      SMF_ResetEvidence(g_smf); SMF_ResetEvidence(g_smf_snapshot);
+      g_smf.status="DISABLED"; g_smf_snapshot.status="DISABLED";
+      return;
+   }
+   int closed=rates_total-2;
+   if(closed<3 || closed+1>=ArraySize(g_buf_t)) return;
+   if(!force && g_smf_snapshot.closed_bar==closed &&
+      g_smf_snapshot.decision_time==g_buf_t[closed+1]) return;
+   g_smf_current_audit_time=0; g_smf_current_audit_ok=true;
+   long start_us=(long)GetMicrosecondCount();
+   SMF_ResetEvidence(g_smf_snapshot);
+   SSmartMoneyEvidence e; SMF_ResetEvidence(e);
+   e.enabled=true; e.closed_bar=closed; e.decision_time=g_buf_t[closed+1];
+   double atr=(closed<ArraySize(g_atr_buf) && g_atr_buf[closed]>0.0 ? g_atr_buf[closed] : g_atr);
+   SCandleIntelligence ci=AnalyzeCandleIntelligence(closed,g_buf_o,g_buf_h,g_buf_l,g_buf_c,
+                                                      g_buf_tv,g_buf_rv,atr);
+   if(InpUseCandleIntelligence) g_candle_intel=ci;
+   e.candle_close_location=ci.close_location;
+   e.candle_body_ratio=ci.body_range_ratio;
+   e.candle_wick_ratio=ci.wick_rejection;
+   e.candle_confirms_buy=ci.confirms_buy; e.candle_confirms_sell=ci.confirms_sell;
+   e.candle_is_displacement=ci.is_displacement;
+   e.candle_effort_result_proxy=ci.absorption_behavior;
+   e.volume_ratio=ci.volume_ratio; e.volume_average=ci.volume_average;
+   e.volume_source=(ci.volume_source==""?"UNAVAILABLE":ci.volume_source);
+   e.volume_expansion=ci.volume_expansion;
+   e.volume_valid=(ci.valid && ci.volume_average>0.0 && ci.volume_ratio>=0.0);
+   if(e.volume_valid) e.volume_available_time=e.decision_time;
+
+   if(closed<ArraySize(BufVWAP) && BufVWAP[closed]!=EMPTY_VALUE &&
+      MathIsValidNumber(BufVWAP[closed]) && BufVWAP[closed]>0.0)
+   {
+      e.vwap_value=BufVWAP[closed];
+      e.vwap_valid=true; e.vwap_available_time=e.decision_time;
+      e.vwap_source=(g_vwap_source_label==""?"EXISTING ANCHORED VWAP":g_vwap_source_label);
+      if(closed>0 && closed-1<ArraySize(BufVWAP) && BufVWAP[closed-1]!=EMPTY_VALUE &&
+         MathIsValidNumber(BufVWAP[closed-1]) && BufVWAP[closed-1]>0.0)
+         e.previous_vwap=BufVWAP[closed-1];
+   }
+
+   SMVPProfile profile; string profile_tag=""; bool profile_real=false;
+   if(SMF_ProfileAtDecision(closed,profile,profile_tag,profile_real) &&
+      profile.bar_end<=closed && profile.bar_end+1<ArraySize(g_buf_t))
+   {
+      e.profile_valid=true; e.profile_start_bar=profile.bar_start; e.profile_end_bar=profile.bar_end;
+      e.profile_start_time=profile.t_start; e.profile_end_time=profile.t_end;
+      e.profile_available_time=g_buf_t[profile.bar_end+1];
+      e.profile_poc=profile.poc; e.profile_vah=profile.vah; e.profile_val=profile.val;
+      e.profile_row_size=profile.row_size; e.profile_tag=profile_tag;
+      e.profile_hvn_count=(int)MathMax(0,MathMin(SMF_PROFILE_NODE_MAX,profile.hvn_n));
+      e.profile_lvn_count=(int)MathMax(0,MathMin(SMF_PROFILE_NODE_MAX,profile.lvn_n));
+      for(int i=0;i<SMF_PROFILE_NODE_MAX;i++)
+      {
+         if(i<e.profile_hvn_count) e.profile_hvn[i]=profile.hvn_px[i];
+         if(i<e.profile_lvn_count) e.profile_lvn[i]=profile.lvn_px[i];
+      }
+      e.profile_source=SMF_MVPSourceLabel(profile_real);
+      e.profile_fingerprint=SMF_ProfileFingerprint(profile,profile_tag,e.profile_source);
+   }
+
+   e.valid=(e.profile_valid || e.vwap_valid || e.volume_valid);
+   e.causal_ok=true;
+   if(e.profile_valid)
+   {
+      if(!SMF_ProfileAsOfValid(e.profile_end_bar,closed,e.profile_available_time,e.decision_time) ||
+         e.profile_end_time>g_buf_t[closed]) e.causal_ok=false;
+   }
+   if(e.vwap_valid && !SMF_CausalTimeValid(e.vwap_available_time,e.decision_time)) e.causal_ok=false;
+   if(e.volume_valid && !SMF_CausalTimeValid(e.volume_available_time,e.decision_time)) e.causal_ok=false;
+   e.status=(e.valid?"WATCH - NO CAUSAL SETUP":"NO DATA");
+   e.provenance=SMF_OrderFlowDisclosure();
+   if(e.profile_valid)
+      SMF_AddNote(e.provenance,StringFormat("MVP %s %s POC %.5f VAH %.5f VAL %.5f; end %s avail %s",
+         e.profile_tag,e.profile_source,e.profile_poc,e.profile_vah,e.profile_val,
+         TimeToString(e.profile_end_time,TIME_DATE|TIME_MINUTES),
+         TimeToString(e.profile_available_time,TIME_DATE|TIME_MINUTES)));
+   if(e.vwap_valid)
+      SMF_AddNote(e.provenance,StringFormat("VWAP %s %.5f avail %s",
+         e.vwap_source,e.vwap_value,TimeToString(e.vwap_available_time,TIME_DATE|TIME_MINUTES)));
+   if(e.volume_valid)
+      SMF_AddNote(e.provenance,StringFormat("VOLUME PROXY %s ratio %.2fx baseline %.1f avail %s",
+         e.volume_source,e.volume_ratio,e.volume_average,
+         TimeToString(e.volume_available_time,TIME_DATE|TIME_MINUTES)));
+
+   g_smf_snapshot=e;
+   g_smf=e;
+   if(e.profile_valid) SMF_StoreReplayRecord(closed,e);
+   SMF_ReplayAuditRecent(closed);
+   long elapsed=(long)GetMicrosecondCount()-start_us;
+   g_smf_last_us=elapsed;
+   g_smf_avg_us=(g_smf_avg_us<=0?elapsed:(g_smf_avg_us*7+elapsed)/8);
+}
+
+bool SMF_VWAPScore(const int closed,const int direction,const double atr,
+                   int &score,bool &touch,bool &reclaim,bool &rejection,
+                   bool &aligned,string &response)
+{
+   score=50; touch=false; reclaim=false; rejection=false; aligned=false; response="VWAP UNAVAILABLE";
+   if(closed<2 || direction==0 || !g_smf_snapshot.vwap_valid ||
+      closed>=ArraySize(BufVWAP) || closed>=ArraySize(g_buf_c)) return false;
+   double v=BufVWAP[closed];
+   double pv=BufVWAP[closed-1];
+   if(v==EMPTY_VALUE || pv==EMPTY_VALUE || v<=0.0 || pv<=0.0) return false;
+   double close_px=g_buf_c[closed],prev_close=g_buf_c[closed-1];
+   double tol=MathMax(_Point*2.0,atr*0.08);
+   touch=(g_buf_l[closed]<=v+tol && g_buf_h[closed]>=v-tol);
+   if(direction>0)
+   {
+      aligned=(close_px>v);
+      reclaim=(prev_close<=pv && close_px>v);
+      rejection=(touch && close_px>v && g_smf_snapshot.candle_close_location>=0.60);
+   }
+   else
+   {
+      aligned=(close_px<v);
+      reclaim=(prev_close>=pv && close_px<v);
+      rejection=(touch && close_px<v && g_smf_snapshot.candle_close_location<=0.40);
+   }
+   bool accepted=true; int accept_n=0;
+   for(int b=closed-2;b<=closed;b++)
+   {
+      if(b<0 || b>=ArraySize(BufVWAP) || b>=ArraySize(g_buf_c) || BufVWAP[b]==EMPTY_VALUE)
+      { accepted=false; break; }
+      bool side=(direction>0 ? g_buf_c[b]>BufVWAP[b] : g_buf_c[b]<BufVWAP[b]);
+      if(side) accept_n++;
+   }
+   accepted=(accepted && accept_n==3);
+   if(reclaim) {score=95; response=(direction>0?"VWAP RECLAIM":"VWAP REJECTION / RECLAIM DOWN");}
+   else if(rejection) {score=88; response=(direction>0?"VWAP SUPPORT REJECTION":"VWAP RESISTANCE REJECTION");}
+   else if(accepted) {score=74; response=(direction>0?"ACCEPTED ABOVE VWAP":"ACCEPTED BELOW VWAP");}
+   else if(aligned) {score=62; response=(direction>0?"ABOVE VWAP":"BELOW VWAP");}
+   else {score=25; response=(direction>0?"CLOSE BELOW VWAP":"CLOSE ABOVE VWAP");}
+   return true;
+}
+
+string SMF_ClassifyStatus(const bool data_valid,const bool at_location,const bool rejection,
+                          const bool flow_confirmed,const bool vwap_aligned,
+                          const bool displacement,const bool structure_ok,const bool zone_ok,
+                          const bool retest_ok,const bool rr_ok,const bool authority_ok,
+                          const bool conflict,const bool forming,const bool causal_ok)
+{
+   if(!causal_ok) return "CAUSALITY FAIL";
+   if(forming) return "WATCH / WAIT CLOSED BAR";
+   if(conflict) return "CONFLICT / WATCH";
+   if(authority_ok && structure_ok && zone_ok && retest_ok && rr_ok)
+      return "EXECUTION READY (CORE AUTHORITY)";
+   if(structure_ok && zone_ok) return "WAIT RETEST / CORE GATES";
+   if(rejection && at_location && flow_confirmed && vwap_aligned && displacement)
+      return "STRONG REACTION";
+   if(rejection && at_location) return "REACTION";
+   if(!data_valid) return "NO DATA / WATCH";
+   if(at_location || flow_confirmed || vwap_aligned) return "WATCH";
+   return "NO TRADE";
+}
+
+bool SMF_AddEventProvenance(const int event_index,const string label,
+                            const datetime decision_time,string &summary,
+                            datetime &max_availability)
+{
+   if(event_index<0) return true;
+   if(event_index>=ArraySize(g_causal_events)) return false;
+   SCausalEvent ev=g_causal_events[event_index];
+   if(!SMF_CausalTimeValid(ev.availability_time,decision_time)) return false;
+   if(ev.availability_time>max_availability) max_availability=ev.availability_time;
+   SMF_AddNote(summary,StringFormat("%s=%s event %s avail %s",label,ev.id,
+      TimeToString(ev.event_time,TIME_DATE|TIME_MINUTES),
+      TimeToString(ev.availability_time,TIME_DATE|TIME_MINUTES)));
+   return true;
+}
+
+void SMF_EvaluateCandidate(const int closed,const bool is_buy,
+                           const double zone_top,const double zone_bottom,
+                           const int sweep_event,const int displacement_event,
+                           const int structure_event,const int zone_event,
+                           const bool causal_chain_ok,const bool structure_ok,
+                           const bool zone_ok,const bool retest_ok,const bool rr_ok,
+                           const bool authority_ok,const bool forming)
+{
+   if(!InpUseSmartMoneyVolumeEvidence)
+   {
+      SMF_ResetEvidence(g_smf); g_smf.status="DISABLED"; return;
+   }
+   g_smf=g_smf_snapshot;
+   g_smf.enabled=true;
+   g_smf.direction=(is_buy?1:-1);
+   g_smf.causal_chain_ok=causal_chain_ok; g_smf.structure_ok=structure_ok;
+   g_smf.zone_ok=zone_ok; g_smf.retest_ok=retest_ok; g_smf.rr_ok=rr_ok;
+   g_smf.authority_ok=authority_ok; g_smf.forming=forming;
+   g_smf.true_bid_ask_available=false;
+   g_smf.event_provenance="";
+   g_smf.sweep_event_id=""; g_smf.displacement_event_id="";
+   g_smf.structure_event_id=""; g_smf.zone_event_id="";
+   g_smf.event_available_time=0;
+   if(closed<0 || closed+1>=ArraySize(g_buf_t) ||
+      g_smf_snapshot.closed_bar!=closed || g_smf_snapshot.decision_time!=g_buf_t[closed+1])
+      g_smf.causal_ok=false;
+   if(g_smf.profile_valid)
+   {
+      g_smf.profile_integrated_score=50.0;
+      SMVPProfile p; ZeroMemory(p); p.valid=true; p.rows=1;
+      p.poc=g_smf.profile_poc; p.vah=g_smf.profile_vah;
+      p.val=g_smf.profile_val; p.row_size=g_smf.profile_row_size;
+      p.hvn_n=g_smf.profile_hvn_count; p.lvn_n=g_smf.profile_lvn_count;
+      for(int i=0;i<SMF_PROFILE_NODE_MAX;i++)
+      { p.hvn_px[i]=g_smf.profile_hvn[i]; p.lvn_px[i]=g_smf.profile_lvn[i]; }
+      if(!SMF_ProfileAsOfValid(g_smf.profile_end_bar,closed,
+                               g_smf.profile_available_time,g_smf.decision_time) ||
+         g_smf.profile_end_time>g_buf_t[closed])
+         g_smf.causal_ok=false;
+      else
+      {
+         double atr=(closed<ArraySize(g_atr_buf)?g_atr_buf[closed]:g_atr);
+         g_smf.profile_score=SMF_ProfileScore(p,g_smf.direction,g_buf_h[closed],g_buf_l[closed],
+              g_buf_c[closed],g_smf_snapshot.candle_close_location,atr,
+              g_smf.profile_touch,g_smf.profile_boundary_touch,g_smf.profile_node_touch,
+              g_smf.profile_rejection,g_smf.profile_response);
+         if(zone_top>zone_bottom && zone_bottom<=p.vah && zone_top>=p.val)
+            g_smf.profile_response+="; CAUSAL ZONE OVERLAPS VALUE";
+      }
+   }
+   else
+   {
+      g_smf.profile_score=50; g_smf.profile_response="PROFILE UNAVAILABLE";
+   }
+
+   if(g_smf.vwap_valid)
+   {
+      double atr=(closed<ArraySize(g_atr_buf)?g_atr_buf[closed]:g_atr);
+      int vs=50; bool vt=false,vr=false,vrej=false,va=false; string vdesc="";
+      if(SMF_VWAPScore(closed,g_smf.direction,atr,vs,vt,vr,vrej,va,vdesc))
+      {
+         g_smf.vwap_score=vs; g_smf.vwap_touch=vt; g_smf.vwap_reclaim=vr;
+         g_smf.vwap_rejection=vrej; g_smf.vwap_aligned=va;
+         g_smf.vwap_event=(vt || vr || vrej); g_smf.vwap_response=vdesc;
+      }
+      else
+      {
+         g_smf.vwap_valid=false; g_smf.vwap_score=50; g_smf.vwap_response="VWAP HISTORY UNAVAILABLE";
+      }
+   }
+
+   g_smf.volume_expansion=g_smf_snapshot.volume_expansion;
+   g_smf.volume_ratio=g_smf_snapshot.volume_ratio;
+   g_smf.volume_average=g_smf_snapshot.volume_average;
+   bool candle_confirms=(is_buy?g_smf_snapshot.candle_confirms_buy:g_smf_snapshot.candle_confirms_sell);
+   double directional_close=(is_buy ? g_smf_snapshot.candle_close_location :
+                             1.0-g_smf_snapshot.candle_close_location);
+   g_smf.flow_score=SMF_FlowProxyScore(g_smf.volume_expansion,g_smf.volume_ratio,
+                                       directional_close,candle_confirms);
+   g_smf.flow_directional=(g_smf.flow_score>0);
+   g_smf.displacement=g_smf_snapshot.candle_is_displacement;
+   g_smf.absorption_proxy=SMF_IsAbsorptionProxy(g_smf.volume_expansion,g_smf.volume_ratio,
+      g_smf_snapshot.candle_body_ratio,g_smf_snapshot.candle_wick_ratio);
+   if(g_smf.flow_directional)
+      g_smf.flow_response=StringFormat("DIRECTIONAL VOLUME PROXY %.2fx (score %d/100)",
+                                       g_smf.volume_ratio,g_smf.flow_score);
+   else if(g_smf.absorption_proxy)
+      g_smf.flow_response=StringFormat("EFFORT/RESULT PROXY %.2fx; NOT TRUE ABSORPTION",
+                                       g_smf.volume_ratio);
+   else if(g_smf.volume_expansion)
+      g_smf.flow_response=StringFormat("VOLUME EXPANSION %.2fx; NO DIRECTIONAL CLOSE CONFIRMATION",
+                                       g_smf.volume_ratio);
+   else
+      g_smf.flow_response=StringFormat("NORMAL TOTAL VOLUME %.2fx; PROXY ONLY",g_smf.volume_ratio);
+
+   bool pstrong=(g_smf.profile_valid && g_smf.profile_score>=70);
+   bool popposed=(g_smf.profile_valid && g_smf.profile_score<=30);
+   bool vstrong=(g_smf.vwap_valid && g_smf.vwap_score>=70);
+   bool vopposed=(g_smf.vwap_valid && g_smf.vwap_score<=30);
+   if((pstrong && vopposed) || (vstrong && popposed))
+   {
+      g_smf.conflict=true;
+      g_smf.conflict_reason="PROFILE / VWAP CONTEXT OPPOSES";
+   }
+   if(g_htf_bias!=0 && g_htf_bias!=g_smf.direction &&
+      ((g_smf.vwap_valid && g_smf.vwap_score>=70) ||
+       (g_smf.profile_valid && g_smf.profile_score>=70)))
+   {
+      g_smf.conflict=true;
+      SMF_AddNote(g_smf.conflict_reason,"HTF BIAS OPPOSES SUPPORTIVE PROFILE/VWAP");
+   }
+
+   // Event clustering: when profile, VWAP, and/or the volume proxy react on
+   // the same closed candle, only one existing score bucket receives that
+   // cluster. The detailed evidence remains visible and auditable.
+   g_smf.integrate_profile=(g_smf.profile_valid && !g_smf.conflict);
+   g_smf.integrate_vwap=(g_smf.vwap_valid && !g_smf.conflict);
+   g_smf.integrate_flow=(g_smf.flow_score>0);
+   g_smf.profile_integrated_score=(double)g_smf.profile_score;
+   if(g_smf.profile_boundary_touch && (g_smf.flow_score>0 || g_smf.vwap_event))
+   {
+      g_smf.shared_bar_cluster=true;
+      if(g_smf.flow_score>0)
+      {
+         g_smf.integrate_flow=false;
+         if(g_smf.profile_rejection)
+            g_smf.profile_integrated_score=0.70*g_smf.profile_score+0.30*g_smf.flow_score;
+         SMF_AddNote(g_smf.integration_note,"value-area/volume overlap: LIQUIDITY once; flow only blended on rejection");
+      }
+      if(g_smf.vwap_event)
+      {
+         g_smf.integrate_vwap=false;
+         SMF_AddNote(g_smf.integration_note,"same-bar VWAP touch/reclaim subscore suppressed");
+      }
+   }
+   else if(g_smf.vwap_event && g_smf.flow_score>0)
+   {
+      g_smf.shared_bar_cluster=true;
+      g_smf.integrate_flow=false;
+      SMF_AddNote(g_smf.integration_note,"VWAP/volume overlap: flow subscore suppressed to avoid duplicate context credit");
+   }
+   if(g_smf.conflict)
+   {
+      g_smf.integrate_profile=false; g_smf.integrate_vwap=false;
+      SMF_AddNote(g_smf.integration_note,"conflicting location/context votes are disclosed, not averaged");
+   }
+
+   datetime max_avail=0;
+   bool audit_ok=g_smf.causal_ok;
+   if(g_smf.profile_valid)
+   {
+      audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.profile_available_time,g_smf.decision_time) &&
+                g_smf.profile_end_bar<=closed && g_smf.profile_end_time<=g_buf_t[closed]);
+      max_avail=MathMax((long)max_avail,(long)g_smf.profile_available_time);
+   }
+   if(g_smf.vwap_valid)
+   {
+      audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.vwap_available_time,g_smf.decision_time));
+      max_avail=MathMax((long)max_avail,(long)g_smf.vwap_available_time);
+   }
+   if(g_smf.volume_valid)
+   {
+      audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.volume_available_time,g_smf.decision_time));
+      max_avail=MathMax((long)max_avail,(long)g_smf.volume_available_time);
+   }
+   g_smf.event_available_time=0;
+   bool ev_ok=SMF_AddEventProvenance(sweep_event,"SWEEP",g_smf.decision_time,
+                                     g_smf.event_provenance,g_smf.event_available_time);
+   if(sweep_event>=0 && sweep_event<ArraySize(g_causal_events))
+      g_smf.sweep_event_id=g_causal_events[sweep_event].id;
+   ev_ok=(ev_ok && SMF_AddEventProvenance(displacement_event,"DISP",g_smf.decision_time,
+                                     g_smf.event_provenance,g_smf.event_available_time));
+   if(displacement_event>=0 && displacement_event<ArraySize(g_causal_events))
+      g_smf.displacement_event_id=g_causal_events[displacement_event].id;
+   ev_ok=(ev_ok && SMF_AddEventProvenance(structure_event,"STRUCT",g_smf.decision_time,
+                                     g_smf.event_provenance,g_smf.event_available_time));
+   if(structure_event>=0 && structure_event<ArraySize(g_causal_events))
+      g_smf.structure_event_id=g_causal_events[structure_event].id;
+   ev_ok=(ev_ok && SMF_AddEventProvenance(zone_event,"ZONE",g_smf.decision_time,
+                                     g_smf.event_provenance,g_smf.event_available_time));
+   if(zone_event>=0 && zone_event<ArraySize(g_causal_events))
+      g_smf.zone_event_id=g_causal_events[zone_event].id;
+   if(g_smf.event_available_time>0)
+   {
+      audit_ok=(audit_ok && SMF_CausalTimeValid(g_smf.event_available_time,g_smf.decision_time));
+      max_avail=MathMax((long)max_avail,(long)g_smf.event_available_time);
+   }
+   audit_ok=(audit_ok && ev_ok);
+   g_smf.causal_ok=audit_ok;
+   if(g_smf.profile_valid && !SMF_ReplayCheckCurrent(closed)) g_smf.causal_ok=false;
+
+   g_smf.valid=(g_smf.profile_valid || g_smf.vwap_valid || g_smf.volume_valid);
+   g_smf.status=SMF_ClassifyStatus(g_smf.valid,g_smf.profile_touch,g_smf.profile_rejection,
+      g_smf.flow_directional,(g_smf.vwap_valid && g_smf.vwap_score>=60),g_smf.displacement,
+      structure_ok,zone_ok,retest_ok,rr_ok,authority_ok,g_smf.conflict,forming,g_smf.causal_ok);
+   g_smf.missing_reason="";
+   if(!g_smf.profile_valid) SMF_AddNote(g_smf.missing_reason,"profile unavailable");
+   else if(g_smf.profile_touch && !g_smf.profile_rejection)
+      SMF_AddNote(g_smf.missing_reason,"profile touch has no closed-bar rejection");
+   if(!g_smf.vwap_valid) SMF_AddNote(g_smf.missing_reason,"VWAP unavailable");
+   if(!g_smf.volume_valid) SMF_AddNote(g_smf.missing_reason,"volume baseline unavailable");
+   else if(g_smf.volume_expansion && !g_smf.flow_directional)
+      SMF_AddNote(g_smf.missing_reason,"volume spike lacks directional close confirmation");
+   if(!structure_ok) SMF_AddNote(g_smf.missing_reason,"causal structure/MSS missing");
+   if(!zone_ok) SMF_AddNote(g_smf.missing_reason,"causal OB/FVG zone missing");
+   if(structure_ok && zone_ok && !retest_ok) SMF_AddNote(g_smf.missing_reason,"waiting for later closed-bar retest");
+   if(!rr_ok && structure_ok && zone_ok) SMF_AddNote(g_smf.missing_reason,"RR geometry not yet passed");
+   if(g_smf.conflict) SMF_AddNote(g_smf.missing_reason,g_smf.conflict_reason);
+   if(forming) SMF_AddNote(g_smf.missing_reason,"forming candle is not entry evidence");
+   if(!g_smf.causal_ok) SMF_AddNote(g_smf.missing_reason,"availability/replay audit failed");
+
+   g_smf.provenance=SMF_OrderFlowDisclosure();
+   if(g_smf.profile_valid)
+      SMF_AddNote(g_smf.provenance,StringFormat("MVP %s %s POC %.5f VAH %.5f VAL %.5f profile-end %s available %s",
+         g_smf.profile_tag,g_smf.profile_source,g_smf.profile_poc,g_smf.profile_vah,g_smf.profile_val,
+         TimeToString(g_smf.profile_end_time,TIME_DATE|TIME_MINUTES),
+         TimeToString(g_smf.profile_available_time,TIME_DATE|TIME_MINUTES)));
+   if(g_smf.vwap_valid)
+      SMF_AddNote(g_smf.provenance,StringFormat("VWAP %s %.5f response %s available %s",
+         g_smf.vwap_source,g_smf.vwap_value,g_smf.vwap_response,
+         TimeToString(g_smf.vwap_available_time,TIME_DATE|TIME_MINUTES)));
+   if(g_smf.volume_valid)
+      SMF_AddNote(g_smf.provenance,StringFormat("VOLUME PROXY %s %.2fx ratio score %d available %s",
+         g_smf.volume_source,g_smf.volume_ratio,g_smf.flow_score,
+         TimeToString(g_smf.volume_available_time,TIME_DATE|TIME_MINUTES)));
+   if(g_smf.event_provenance!="") SMF_AddNote(g_smf.provenance,g_smf.event_provenance);
+   g_smf.provenance+=StringFormat("; decision %s; max availability %s",
+      TimeToString(g_smf.decision_time,TIME_DATE|TIME_MINUTES),
+      TimeToString((datetime)max_avail,TIME_DATE|TIME_MINUTES));
+}
+
+void SMF_RefreshDecisionView(const int rates_total)
+{
+   if(!InpUseSmartMoneyVolumeEvidence) return;
+   int closed=rates_total-2;
+   if(closed<1 || g_smf_snapshot.closed_bar!=closed) return;
+   int sw=-1,dp=-1,st=-1,ze=-1;
+   bool chain=false,structure=false,zone=false,retest=false,rr=false,authority=false;
+   double ztop=0.0,zbot=0.0;
+   int direction=0;
+   if(InpUseRetestLifecycle && g_active_setup.active)
+   {
+      direction=(g_active_setup.is_buy?1:-1);
+      sw=FindCausalEventById(g_active_setup.sweep_event_id);
+      dp=FindCausalEventById(g_active_setup.displacement_event_id);
+      st=FindCausalEventById(g_active_setup.structure_event_id);
+      ze=FindCausalEventById(g_active_setup.zone_event_id);
+      chain=(sw>=0 && dp>=0 && st>=0 && IsCausallyConnected(sw,dp) && IsCausallyConnected(dp,st));
+      structure=(st>=0); zone=(ze>=0); ztop=g_active_setup.zone_top; zbot=g_active_setup.zone_bottom;
+      retest=IsConfirmedSignalState(g_active_setup.state) &&
+             g_active_setup.confirmed_bar>g_active_setup.created_bar;
+      rr=(g_active_setup.rr1+1e-9>=InpMinRR1);
+      authority=retest;
+   }
+   else if(g_trade_setup.valid || g_trade_setup.confirmation_pending)
+   {
+      direction=(g_trade_setup.is_buy?1:-1);
+      sw=FindCausalEventById(g_trade_setup.sweep_event_id);
+      dp=FindCausalEventById(g_trade_setup.displacement_event_id);
+      st=FindCausalEventById(g_trade_setup.structure_event_id);
+      ze=FindCausalEventById(g_trade_setup.zone_event_id);
+      chain=(sw>=0 && dp>=0 && st>=0 && IsCausallyConnected(sw,dp) && IsCausallyConnected(dp,st));
+      structure=(st>=0); zone=(ze>=0); ztop=g_trade_setup.zone_top; zbot=g_trade_setup.zone_bottom;
+      retest=(g_trade_setup.confirmation_bar>g_trade_setup.created_bar &&
+              g_trade_setup.confirmation_time>g_trade_setup.created_time);
+      rr=(g_trade_setup.rr1+1e-9>=InpMinRR1);
+      authority=(g_trade_setup.valid && !g_trade_setup.confirmation_pending && retest);
+   }
+   else if(g_causal_diag.directional_watch_available)
+   {
+      direction=(g_causal_diag.directional_watch_is_buy?1:-1);
+      chain=(g_causal_diag.directional_watch_sweep_ok && g_causal_diag.directional_watch_disp_ok &&
+             g_causal_diag.directional_watch_mss_ok);
+      structure=g_causal_diag.directional_watch_mss_ok;
+      zone=g_causal_diag.directional_watch_zone_ok;
+   }
+   else if(g_htf_bias!=0) direction=g_htf_bias;
+
+   SMF_EvaluateCandidate(closed,direction>0,ztop,zbot,sw,dp,st,ze,
+                         chain,structure,zone,retest,rr,authority,false);
+   if(direction==0)
+   {
+      // Neutral dashboard state: independently identify a closed-bar VAL/VAH
+      // reaction, but never infer a trade direction from confluence alone.
+      g_smf.direction=0; g_smf.conflict=false; g_smf.conflict_reason="";
+      g_smf.integrate_profile=false; g_smf.integrate_vwap=false; g_smf.integrate_flow=false;
+      g_smf.flow_score=0; g_smf.flow_directional=false; g_smf.vwap_score=50;
+      g_smf.vwap_reclaim=false; g_smf.vwap_rejection=false; g_smf.vwap_aligned=false;
+      g_smf.profile_integrated_score=50.0; g_smf.missing_reason="";
+      g_smf.integration_note="non-directional view; no score contribution";
+      g_smf.flow_response=(g_smf.volume_expansion ?
+         StringFormat("VOLUME EXPANSION %.2fx; DIRECTION NOT SELECTED (VOLUME PROXY)",g_smf.volume_ratio) :
+         StringFormat("NORMAL TOTAL VOLUME %.2fx; VOLUME PROXY",g_smf.volume_ratio));
+      if(g_smf.absorption_proxy) g_smf.flow_response+="; EFFORT/RESULT PROXY, NOT TRUE ABSORPTION";
+      if(g_smf.profile_valid)
+      {
+         SMVPProfile view; ZeroMemory(view); view.valid=true; view.rows=1;
+         view.poc=g_smf.profile_poc; view.vah=g_smf.profile_vah;
+         view.val=g_smf.profile_val; view.row_size=g_smf.profile_row_size;
+         view.hvn_n=g_smf.profile_hvn_count; view.lvn_n=g_smf.profile_lvn_count;
+         for(int i=0;i<SMF_PROFILE_NODE_MAX;i++)
+         { view.hvn_px[i]=g_smf.profile_hvn[i]; view.lvn_px[i]=g_smf.profile_lvn[i]; }
+         double atr=(closed<ArraySize(g_atr_buf)?g_atr_buf[closed]:g_atr);
+         bool bt=false,bbt=false,bnt=false,br=false;
+         bool stouch=false,sbt=false,snt=false,sr=false;
+         string bdesc="",sdesc="";
+         int bscore=SMF_ProfileScore(view,1,g_buf_h[closed],g_buf_l[closed],g_buf_c[closed],
+                     g_smf_snapshot.candle_close_location,atr,bt,bbt,bnt,br,bdesc);
+         int sscore=SMF_ProfileScore(view,-1,g_buf_h[closed],g_buf_l[closed],g_buf_c[closed],
+                     g_smf_snapshot.candle_close_location,atr,stouch,sbt,snt,sr,sdesc);
+         g_smf.profile_touch=(bt || stouch);
+         g_smf.profile_boundary_touch=(bbt || sbt);
+         g_smf.profile_node_touch=(bnt || snt);
+         g_smf.profile_rejection=(br || sr);
+         if(br && !sr) {g_smf.profile_score=bscore; g_smf.profile_response=bdesc;}
+         else if(sr && !br) {g_smf.profile_score=sscore; g_smf.profile_response=sdesc;}
+         else if(g_buf_c[closed]<g_smf.profile_val)
+         {g_smf.profile_score=25; g_smf.profile_response="BELOW VAL / NO CONFIRMED REACTION";}
+         else if(g_buf_c[closed]>g_smf.profile_vah)
+         {g_smf.profile_score=25; g_smf.profile_response="ABOVE VAH / NO CONFIRMED REACTION";}
+         else {g_smf.profile_score=50; g_smf.profile_response="IN VALUE / NON-DIRECTIONAL";}
+         if(g_smf.profile_node_touch && StringFind(g_smf.profile_response,"NON-DIRECTIONAL")<0)
+            g_smf.profile_response+="; NODE LOCATION (NON-DIRECTIONAL)";
+      }
+      else
+      {
+         g_smf.profile_touch=false; g_smf.profile_boundary_touch=false;
+         g_smf.profile_node_touch=false; g_smf.profile_rejection=false;
+         g_smf.profile_response="PROFILE UNAVAILABLE"; g_smf.profile_score=50;
+      }
+      if(g_smf.vwap_valid)
+      {
+         double atr=(closed<ArraySize(g_atr_buf)?g_atr_buf[closed]:g_atr);
+         double tol=MathMax(_Point*2.0,atr*0.08);
+         g_smf.vwap_touch=(g_buf_l[closed]<=g_smf.vwap_value+tol &&
+                            g_buf_h[closed]>=g_smf.vwap_value-tol);
+         g_smf.vwap_event=g_smf.vwap_touch;
+         g_smf.vwap_response=(g_buf_c[closed]>=g_smf.vwap_value?"ABOVE VWAP":"BELOW VWAP");
+      }
+      if(!g_smf.vwap_valid)
+      {g_smf.vwap_touch=false; g_smf.vwap_event=false; g_smf.vwap_response="VWAP UNAVAILABLE";}
+      if(!structure) SMF_AddNote(g_smf.missing_reason,"causal MSS/structure not present");
+      if(!zone) SMF_AddNote(g_smf.missing_reason,"causal OB/FVG zone not present");
+      if(g_smf.profile_touch && !g_smf.profile_rejection)
+         SMF_AddNote(g_smf.missing_reason,"profile touch lacks rejection");
+      if(g_smf.volume_expansion && !g_smf.flow_directional)
+         SMF_AddNote(g_smf.missing_reason,"volume spike is non-directional proxy evidence");
+      if(g_smf.valid && g_smf.causal_ok)
+         g_smf.status=(g_smf.profile_rejection?"REACTION - NO CORE STRUCTURE":"WATCH - NO CORE STRUCTURE");
+      else if(!g_smf.causal_ok) g_smf.status="CAUSALITY FAIL";
+      else g_smf.status="NO DATA / WATCH";
+      g_smf.provenance=SMF_OrderFlowDisclosure();
+      if(g_smf.profile_valid)
+         SMF_AddNote(g_smf.provenance,StringFormat("MVP %s %s POC %.5f VAH %.5f VAL %.5f available %s",
+            g_smf.profile_tag,g_smf.profile_source,g_smf.profile_poc,g_smf.profile_vah,
+            g_smf.profile_val,TimeToString(g_smf.profile_available_time,TIME_DATE|TIME_MINUTES)));
+      if(g_smf.vwap_valid)
+         SMF_AddNote(g_smf.provenance,StringFormat("VWAP %s %.5f available %s",
+            g_smf.vwap_source,g_smf.vwap_value,
+            TimeToString(g_smf.vwap_available_time,TIME_DATE|TIME_MINUTES)));
+      if(g_smf.volume_valid)
+         SMF_AddNote(g_smf.provenance,StringFormat("VOLUME PROXY %s ratio %.2fx available %s",
+            g_smf.volume_source,g_smf.volume_ratio,
+            TimeToString(g_smf.volume_available_time,TIME_DATE|TIME_MINUTES)));
+      SMF_AddNote(g_smf.provenance,"NO CAUSAL SETUP AUTHORIZED BY THIS EVIDENCE LAYER");
+   }
+}
+
+void SMF_CopyToFacts(const SSmartMoneyEvidence &src,SSMFSignalFacts &dst)
+{
+   dst.valid=src.valid; dst.causal_ok=src.causal_ok; dst.decision_bar=src.closed_bar;
+   dst.direction=src.direction; dst.decision_time=src.decision_time;
+   dst.availability_time=(src.event_available_time>src.profile_available_time ?
+                           src.event_available_time : src.profile_available_time);
+   if(src.vwap_available_time>dst.availability_time) dst.availability_time=src.vwap_available_time;
+   if(src.volume_available_time>dst.availability_time) dst.availability_time=src.volume_available_time;
+   if(dst.availability_time<=0) dst.availability_time=src.decision_time;
+   dst.profile_available_time=src.profile_available_time;
+   dst.vwap_available_time=src.vwap_available_time;
+   dst.volume_available_time=src.volume_available_time;
+   dst.event_available_time=src.event_available_time;
+   dst.profile_poc=src.profile_poc; dst.profile_vah=src.profile_vah; dst.profile_val=src.profile_val;
+   dst.profile_row_size=src.profile_row_size;
+   dst.profile_hvn_count=src.profile_hvn_count; dst.profile_lvn_count=src.profile_lvn_count;
+   for(int i=0;i<SMF_PROFILE_NODE_MAX;i++)
+   { dst.profile_hvn[i]=src.profile_hvn[i]; dst.profile_lvn[i]=src.profile_lvn[i]; }
+   dst.vwap_value=src.vwap_value;
+   dst.volume_ratio=src.volume_ratio; dst.profile_score=src.profile_score;
+   dst.vwap_score=src.vwap_score; dst.flow_score=src.flow_score;
+   dst.integrate_profile=src.integrate_profile; dst.integrate_vwap=src.integrate_vwap;
+   dst.integrate_flow=src.integrate_flow; dst.same_bar_cluster=src.shared_bar_cluster;
+   dst.conflict=src.conflict; dst.profile_touch=src.profile_touch;
+   dst.profile_boundary_touch=src.profile_boundary_touch;
+   dst.profile_node_touch=src.profile_node_touch;
+   dst.vwap_event=src.vwap_event; dst.volume_expansion=src.volume_expansion;
+   dst.profile_fingerprint=src.profile_fingerprint; dst.profile_tag=src.profile_tag;
+   dst.profile_source=src.profile_source; dst.volume_source=src.volume_source;
+   dst.vwap_source=src.vwap_source; dst.profile_response=src.profile_response;
+   dst.vwap_response=src.vwap_response; dst.flow_response=src.flow_response;
+   dst.status=src.status; dst.sweep_event_id=src.sweep_event_id;
+   dst.displacement_event_id=src.displacement_event_id;
+   dst.structure_event_id=src.structure_event_id; dst.zone_event_id=src.zone_event_id;
+   dst.provenance=src.provenance;
+}
+
+bool SMF_FactsEqual(const SSMFSignalFacts &a,const SSMFSignalFacts &b)
+{
+   double eps=MathMax(_Point*0.1,1e-10);
+   if(a.profile_hvn_count!=b.profile_hvn_count || a.profile_lvn_count!=b.profile_lvn_count)
+      return false;
+   for(int i=0;i<SMF_PROFILE_NODE_MAX;i++)
+      if(MathAbs(a.profile_hvn[i]-b.profile_hvn[i])>eps ||
+         MathAbs(a.profile_lvn[i]-b.profile_lvn[i])>eps) return false;
+   return (a.valid==b.valid && a.causal_ok==b.causal_ok && a.decision_bar==b.decision_bar &&
+      a.direction==b.direction && a.decision_time==b.decision_time &&
+      a.availability_time==b.availability_time &&
+      a.profile_available_time==b.profile_available_time &&
+      a.vwap_available_time==b.vwap_available_time &&
+      a.volume_available_time==b.volume_available_time &&
+      a.event_available_time==b.event_available_time &&
+      MathAbs(a.profile_poc-b.profile_poc)<=eps && MathAbs(a.profile_vah-b.profile_vah)<=eps &&
+      MathAbs(a.profile_val-b.profile_val)<=eps && MathAbs(a.profile_row_size-b.profile_row_size)<=eps &&
+      MathAbs(a.vwap_value-b.vwap_value)<=eps && MathAbs(a.volume_ratio-b.volume_ratio)<=1e-8 &&
+      a.profile_score==b.profile_score && a.vwap_score==b.vwap_score && a.flow_score==b.flow_score &&
+      a.integrate_profile==b.integrate_profile && a.integrate_vwap==b.integrate_vwap &&
+      a.integrate_flow==b.integrate_flow && a.same_bar_cluster==b.same_bar_cluster &&
+      a.conflict==b.conflict && a.profile_touch==b.profile_touch &&
+      a.profile_boundary_touch==b.profile_boundary_touch && a.profile_node_touch==b.profile_node_touch &&
+      a.vwap_event==b.vwap_event &&
+      a.volume_expansion==b.volume_expansion &&
+      a.profile_fingerprint==b.profile_fingerprint && a.profile_tag==b.profile_tag &&
+      a.profile_source==b.profile_source && a.volume_source==b.volume_source && a.vwap_source==b.vwap_source &&
+      a.profile_response==b.profile_response && a.vwap_response==b.vwap_response &&
+      a.flow_response==b.flow_response && a.status==b.status &&
+      a.sweep_event_id==b.sweep_event_id && a.displacement_event_id==b.displacement_event_id &&
+      a.structure_event_id==b.structure_event_id && a.zone_event_id==b.zone_event_id &&
+      a.provenance==b.provenance);
+}
+
+bool SMF_FactsCausalValid(const SSMFSignalFacts &facts)
+{
+   if(!facts.valid) return true;
+   if(facts.profile_hvn_count<0 || facts.profile_hvn_count>SMF_PROFILE_NODE_MAX ||
+      facts.profile_lvn_count<0 || facts.profile_lvn_count>SMF_PROFILE_NODE_MAX) return false;
+   for(int i=0;i<facts.profile_hvn_count;i++)
+      if(!MathIsValidNumber(facts.profile_hvn[i]) || facts.profile_hvn[i]<=0.0) return false;
+   for(int i=0;i<facts.profile_lvn_count;i++)
+      if(!MathIsValidNumber(facts.profile_lvn[i]) || facts.profile_lvn[i]<=0.0) return false;
+   if(!facts.causal_ok || facts.decision_time<=0 || facts.availability_time<=0 ||
+      facts.availability_time>facts.decision_time) return false;
+   if(facts.profile_available_time>0 && facts.profile_available_time>facts.decision_time) return false;
+   if(facts.vwap_available_time>0 && facts.vwap_available_time>facts.decision_time) return false;
+   if(facts.volume_available_time>0 && facts.volume_available_time>facts.decision_time) return false;
+   if(facts.event_available_time>0 && facts.event_available_time>facts.decision_time) return false;
+   return true;
+}
+
+ulong SMF_FactsDigest(const SSMFSignalFacts &facts)
+{
+   string row="SMFFACT|"+(facts.valid?"1":"0")+"|"+(facts.causal_ok?"1":"0")+
+      "|"+IntegerToString(facts.direction)+"|"+IntegerToString((long)facts.decision_bar)+
+      "|"+IntegerToString((long)facts.decision_time)+"|"+IntegerToString((long)facts.availability_time)+
+      "|"+IntegerToString((long)facts.profile_available_time)+"|"+IntegerToString((long)facts.vwap_available_time)+
+      "|"+IntegerToString((long)facts.volume_available_time)+"|"+IntegerToString((long)facts.event_available_time)+
+      "|"+IntegerToString((long)facts.profile_fingerprint)+"|"+DoubleToString(facts.profile_poc,10)+
+      "|"+DoubleToString(facts.profile_vah,10)+"|"+DoubleToString(facts.profile_val,10)+
+      "|"+DoubleToString(facts.profile_row_size,10)+"|"+DoubleToString(facts.vwap_value,10)+
+      "|"+DoubleToString(facts.volume_ratio,8)+"|"+IntegerToString(facts.profile_score)+
+      "|"+IntegerToString(facts.vwap_score)+"|"+IntegerToString(facts.flow_score)+
+      "|"+(facts.integrate_profile?"1":"0")+"|"+(facts.integrate_vwap?"1":"0")+
+      "|"+(facts.integrate_flow?"1":"0")+"|"+(facts.same_bar_cluster?"1":"0")+
+      "|"+(facts.conflict?"1":"0")+"|"+(facts.profile_touch?"1":"0")+
+      "|"+(facts.vwap_event?"1":"0")+"|"+(facts.volume_expansion?"1":"0")+
+      "|"+IntegerToString(facts.profile_hvn_count)+"|"+IntegerToString(facts.profile_lvn_count)+
+      "|"+(facts.profile_boundary_touch?"1":"0")+"|"+(facts.profile_node_touch?"1":"0")+
+      "|"+facts.profile_tag+"|"+facts.profile_source+"|"+facts.volume_source+"|"+facts.vwap_source+
+      "|"+facts.profile_response+"|"+facts.vwap_response+"|"+facts.flow_response+"|"+facts.status+
+      "|"+facts.sweep_event_id+"|"+facts.displacement_event_id+"|"+facts.structure_event_id+
+      "|"+facts.zone_event_id+"|"+facts.provenance;
+   for(int i=0;i<facts.profile_hvn_count && i<SMF_PROFILE_NODE_MAX;i++)
+      row+="|HVN"+IntegerToString(i)+"="+DoubleToString(facts.profile_hvn[i],10);
+   for(int i=0;i<facts.profile_lvn_count && i<SMF_PROFILE_NODE_MAX;i++)
+      row+="|LVN"+IntegerToString(i)+"="+DoubleToString(facts.profile_lvn[i],10);
+   return SMF_HashString(row);
+}
+
+string SMF_StateDigestString()
+{
+   string row="SMFSTATE|"+(g_smf.enabled?"1":"0")+"|"+(g_smf.valid?"1":"0")+
+      "|"+(g_smf.causal_ok?"1":"0")+"|"+IntegerToString(g_smf.direction)+
+      "|"+IntegerToString((long)g_smf.decision_time)+"|"+IntegerToString((long)g_smf.profile_available_time)+
+      "|"+IntegerToString((long)g_smf.vwap_available_time)+"|"+IntegerToString((long)g_smf.volume_available_time)+
+      "|"+IntegerToString(g_smf.profile_score)+"|"+IntegerToString(g_smf.vwap_score)+
+      "|"+IntegerToString(g_smf.flow_score)+"|"+(g_smf.conflict?"1":"0")+
+      "|"+(g_smf.integrate_profile?"1":"0")+"|"+(g_smf.integrate_vwap?"1":"0")+
+      "|"+(g_smf.integrate_flow?"1":"0")+"|"+(g_smf.shared_bar_cluster?"1":"0")+
+      "|"+IntegerToString((long)g_smf.profile_fingerprint)+"|"+DoubleToString(g_smf.profile_poc,10)+
+      "|"+DoubleToString(g_smf.profile_vah,10)+"|"+DoubleToString(g_smf.profile_val,10)+
+      "|"+DoubleToString(g_smf.vwap_value,10)+"|"+DoubleToString(g_smf.volume_ratio,8)+
+      "|"+g_smf.profile_tag+"|"+g_smf.profile_source+"|"+g_smf.vwap_source+"|"+g_smf.volume_source+
+      "|"+g_smf.profile_response+"|"+g_smf.vwap_response+"|"+g_smf.flow_response+
+      "|"+g_smf.status+"|"+g_smf.integration_note+"|"+g_smf.event_provenance+
+      "|"+(g_smf.profile_boundary_touch?"1":"0")+"|"+(g_smf.profile_node_touch?"1":"0");
+   row+="|NODES="+IntegerToString(g_smf.profile_hvn_count)+":"+
+      IntegerToString(g_smf.profile_lvn_count);
+   for(int i=0;i<g_smf.profile_hvn_count && i<SMF_PROFILE_NODE_MAX;i++)
+      row+="|HVN"+IntegerToString(i)+"="+DoubleToString(g_smf.profile_hvn[i],10);
+   for(int i=0;i<g_smf.profile_lvn_count && i<SMF_PROFILE_NODE_MAX;i++)
+      row+="|LVN"+IntegerToString(i)+"="+DoubleToString(g_smf.profile_lvn[i],10);
+   row+="|ACTIVEFACTS="+IntegerToString((long)SMF_FactsDigest(g_active_setup.smf));
+   row+="|TRADEFACTS="+IntegerToString((long)SMF_FactsDigest(g_trade_setup.smf));
+   for(int i=0;i<ArraySize(g_confirmed_signal_journal);i++)
+      row+="|JFACT="+g_confirmed_signal_journal[i].setup_id+":"+
+           IntegerToString((long)SMF_FactsDigest(g_confirmed_signal_journal[i].smf));
+   return row;
+}
+
+int SMF_AdjustCandleScore(const int score,const bool volume_expansion,
+                          const int flow_score,const bool flow_integrated)
+{
+   if(!InpUseSmartMoneyVolumeEvidence || !volume_expansion) return (int)SMF_Clamp(score,0,100);
+   // Replace, do not add to, the legacy +10 raw-spike component.
+   int adjusted=MathMax(0,score-10);
+   if(flow_integrated)
+      adjusted+=(int)MathRound(10.0*SMF_Clamp(flow_score,0,100)/100.0);
+   return (int)SMF_Clamp(adjusted,0,100);
+}
+
+void SMF_TestExpect(const bool ok,const string label,string &failure,int &passed)
+{
+   if(ok) passed++;
+   else if(failure=="") failure=label;
+}
+
+bool SMF_TestBuildAsOfProfile(const int asof,const double future_volume,SMVPProfile &p)
+{
+   double lo[4]={100.00,100.20,99.90,80.00};
+   double hi[4]={100.60,100.80,100.50,120.00};
+   double op[4]={100.10,100.35,100.20,100.00};
+   double cl[4]={100.45,100.55,100.00,110.00};
+   double vol[4]={80.0,120.0,90.0,future_volume};
+   if(asof<0 || asof>=4) return false;
+   if(future_volume>1000.0)
+   {
+      lo[3]-=50.0; hi[3]+=50.0; op[3]+=25.0; cl[3]-=25.0;
+   }
+   double pmin=lo[0],pmax=hi[0];
+   for(int b=1;b<=asof;b++)
+   { if(lo[b]<pmin) pmin=lo[b]; if(hi[b]>pmax) pmax=hi[b]; }
+   if(!MVP_PrepareGrid(p,pmin,pmax,0.10,0.01)) return false;
+   for(int b=0;b<=asof;b++)
+      MVP_Accumulate(p,lo[b],hi[b],op[b],cl[b],vol[b],false);
+   MVP_Finalize(p,0.70,0.60,0.35);
+   if(!p.valid) return false;
+   p.bar_start=0; p.bar_end=asof;
+   p.t_start=(datetime)1700000000;
+   p.t_end=p.t_start+(datetime)(asof*60);
+   return true;
+}
+
+bool SMF_SelfTest()
+{
+   string failure=""; int passed=0;
+   SMVPProfile p; ZeroMemory(p);
+   p.valid=true; p.rows=8; p.poc=101.0; p.val=100.0; p.vah=102.0; p.row_size=0.10;
+   int ps=0; bool touch=false,boundary_touch=false,node_touch=false,reject=false; string response="";
+   ps=SMF_ProfileScore(p,1,101.10,99.70,100.80,0.786,0.50,
+                       touch,boundary_touch,node_touch,reject,response);
+   SMF_TestExpect(touch && reject && ps>=90 && StringFind(response,"VAL SWEEP")>=0,
+                  "T1 VAL sweep/reclaim BUY",failure,passed);
+   ps=SMF_ProfileScore(p,-1,102.30,100.90,101.20,0.214,0.50,
+                       touch,boundary_touch,node_touch,reject,response);
+   SMF_TestExpect(touch && reject && ps>=90 && StringFind(response,"VAH SWEEP")>=0,
+                  "T2 VAH sweep/rejection SELL",failure,passed);
+   ps=SMF_ProfileScore(p,1,100.30,99.80,99.90,0.20,0.50,
+                       touch,boundary_touch,node_touch,reject,response);
+   SMF_TestExpect(touch && !reject && ps<50 && StringFind(response,"NO REJECTION")>=0,
+                  "T3 VAL touch without rejection",failure,passed);
+
+   string state=SMF_ClassifyStatus(true,false,false,false,true,false,false,false,
+                                   false,false,false,false,false,true);
+   SMF_TestExpect(state=="WATCH","T4 VWAP reclaim without structure is WATCH",failure,passed);
+   double test_o[5]={100.0,100.0,100.0,100.10,100.0};
+   double test_h[5]={100.2,100.2,100.2,100.30,100.2};
+   double test_l[5]={99.8,99.8,99.8,100.00,99.8};
+   double test_c[5]={100.0,100.0,100.0,100.165,100.0};
+   long test_tv[5]={100,100,100,200,0};
+   long test_rv[5]={0,0,0,0,0};
+   SCandleIntelligence spike=AnalyzeCandleIntelligence(3,test_o,test_h,test_l,test_c,
+                                                        test_tv,test_rv,1.0);
+   bool displacement=spike.is_displacement;
+   int flow=SMF_FlowProxyScore(spike.volume_expansion,spike.volume_ratio,
+                               spike.close_location,false);
+   state=SMF_ClassifyStatus(spike.valid,false,false,false,false,displacement,false,false,
+                            false,false,false,false,false,true);
+   SMF_TestExpect(spike.volume_expansion && !displacement && flow==0 && state=="NO TRADE",
+                  "T5 range-bound volume spike is not displacement",failure,passed);
+   bool absorb=SMF_IsAbsorptionProxy(true,1.8,0.25,1.1);
+   string absorb_label="EFFORT/RESULT PROXY; NOT TRUE ABSORPTION";
+   SMF_TestExpect(absorb && StringFind(absorb_label,"PROXY")>=0 &&
+                  StringFind(absorb_label,"NOT TRUE")>=0,
+                  "T6 absorption/exhaustion remains a proxy",failure,passed);
+   SMF_TestExpect(SMF_ProfileAsOfValid(10,10,200,200) &&
+                  SMF_CausalTimeValid(199,200) && !SMF_CausalTimeValid(201,200) &&
+                  !SMF_ProfileAsOfValid(11,10,200,200),
+                  "T7 historical profile replay rejects future availability",failure,passed);
+   SSMFSignalFacts causal_facts; ZeroMemory(causal_facts);
+   causal_facts.valid=true; causal_facts.causal_ok=true;
+   causal_facts.decision_time=200; causal_facts.availability_time=200;
+   causal_facts.profile_available_time=199;
+   SMF_TestExpect(SMF_FactsCausalValid(causal_facts),
+                  "T7b immutable facts retain only available sources",failure,passed);
+   causal_facts.volume_available_time=201;
+   SMF_TestExpect(!SMF_FactsCausalValid(causal_facts),
+                  "T7c immutable facts reject future volume availability",failure,passed);
+   state=SMF_ClassifyStatus(true,true,true,true,true,true,true,true,
+                            false,true,false,false,true,true);
+   SMF_TestExpect(StringFind(state,"WAIT CLOSED BAR")>=0,
+                  "T8 forming candle cannot confirm",failure,passed);
+   string disclosure=SMF_OrderFlowDisclosure();
+   SMF_TestExpect(StringFind(disclosure,"VOLUME PROXY")>=0 &&
+                  StringFind(disclosure,"TRUE BID/ASK")>=0 &&
+                  StringFind(disclosure,"UNAVAILABLE")>=0,
+                  "T9 unavailable true order flow is explicitly disclosed",failure,passed);
+   state=SMF_ClassifyStatus(true,true,true,false,false,false,true,true,
+                            false,true,false,true,false,true);
+   SMF_TestExpect(state=="CONFLICT / WATCH",
+                  "T10 conflicting evidence stays contextual WATCH",failure,passed);
+   state=SMF_ClassifyStatus(true,false,false,false,false,false,true,true,
+                            true,true,true,false,false,true);
+   SMF_TestExpect(state=="EXECUTION READY (CORE AUTHORITY)",
+                  "T11 execution-ready mirrors all core gates",failure,passed);
+   SMF_TestExpect(SMF_FlowProxyScore(true,2.5,0.90,true)>=90 &&
+                  SMF_FlowProxyScore(true,1.30,0.90,true)==0,
+                  "T12 flow score requires expansion beyond legacy threshold",failure,passed);
+
+   SMVPProfile node_profile; ZeroMemory(node_profile);
+   node_profile.valid=true; node_profile.rows=8; node_profile.poc=101.0;
+   node_profile.val=100.0; node_profile.vah=102.0; node_profile.row_size=0.10;
+   bool base_touch=false,base_boundary=false,base_node=false,base_reject=false;
+   string node_response="";
+   int base_node_score=SMF_ProfileScore(node_profile,1,101.65,101.55,101.60,0.50,0.10,
+      base_touch,base_boundary,base_node,base_reject,node_response);
+   node_profile.hvn_n=1; node_profile.hvn_px[0]=101.60;
+   bool hvn_touch=false,hvn_boundary=false,hvn_node=false,hvn_reject=false;
+   int hvn_score=SMF_ProfileScore(node_profile,1,101.65,101.55,101.60,0.50,0.10,
+      hvn_touch,hvn_boundary,hvn_node,hvn_reject,node_response);
+   node_profile.hvn_n=0; node_profile.lvn_n=1; node_profile.lvn_px[0]=101.60;
+   bool lvn_touch=false,lvn_boundary=false,lvn_node=false,lvn_reject=false;
+   int lvn_score=SMF_ProfileScore(node_profile,1,101.65,101.55,101.60,0.50,0.10,
+      lvn_touch,lvn_boundary,lvn_node,lvn_reject,node_response);
+   SMF_TestExpect(base_node_score==hvn_score && base_node_score==lvn_score &&
+                  hvn_touch && lvn_touch && !hvn_boundary && !lvn_boundary &&
+                  hvn_node && lvn_node && !hvn_reject && !lvn_reject &&
+                  StringFind(node_response,"LVN")>=0 &&
+                  StringFind(node_response,"NON-DIRECTIONAL")>=0,
+                  "T13 HVN/LVN preserve location without directional score",failure,passed);
+
+   SMVPProfile replay_a,replay_b; ZeroMemory(replay_a); ZeroMemory(replay_b);
+   bool replay_a_ok=SMF_TestBuildAsOfProfile(2,500.0,replay_a);
+   bool replay_b_ok=SMF_TestBuildAsOfProfile(2,50000.0,replay_b);
+   ulong replay_a_hash=(replay_a_ok?SMF_ProfileFingerprint(replay_a,"ASOF-TEST","SYNTHETIC TOTAL VOLUME"):0);
+   ulong replay_b_hash=(replay_b_ok?SMF_ProfileFingerprint(replay_b,"ASOF-TEST","SYNTHETIC TOTAL VOLUME"):0);
+   SMF_TestExpect(replay_a_ok && replay_b_ok && replay_a.bar_end==2 && replay_b.bar_end==2 &&
+                  replay_a_hash==replay_b_hash &&
+                  MathAbs(replay_a.poc-replay_b.poc)<1e-10 &&
+                  MathAbs(replay_a.vah-replay_b.vah)<1e-10 &&
+                  MathAbs(replay_a.val-replay_b.val)<1e-10,
+                  "T14 synthetic historical profile replay ignores future-bar mutations",failure,passed);
+
+   int removed_raw=SMF_AdjustCandleScore(40,true,80,false);
+   int replaced_proxy=SMF_AdjustCandleScore(40,true,80,true);
+   SMF_TestExpect(removed_raw==30 && replaced_proxy==38,
+                  "T15 raw volume bonus is replaced, not stacked",failure,passed);
+
+   if(failure!="")
+   {
+      Print("[SMF SelfTest] FAIL after ",passed,"/17: ",failure);
+      return false;
+   }
+   Print("[SMF SelfTest] PASS ",passed,"/17 deterministic scenarios");
+   return true;
 }
 
 void MVP_OnChartChange()
